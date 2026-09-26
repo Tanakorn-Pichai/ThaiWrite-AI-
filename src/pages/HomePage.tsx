@@ -29,6 +29,7 @@ import {
 import { STANDARD_TEMPLATES, evaluateStructure } from '../data/mockTemplates';
 import { INITIAL_MOCK_HISTORY } from '../data/mockHistory';
 import { generateDocumentPreview } from '../data/mockDocumentPreview';
+import { submitAnalysis } from '../services/api';
 
 export const HomePage: React.FC = () => {
   // Page view mode: standard split layout or dedicated full-width document review
@@ -135,8 +136,36 @@ export const HomePage: React.FC = () => {
     showToast('เปลี่ยนกลับมาใช้แม่แบบมาตรฐาน', 'info');
   };
 
+  // Helper to record history
+  const recordHistory = (docName: string, langRes: AnalysisResult, structRes: StructureResult | null) => {
+    const now = new Date();
+    const thaiMonths = [
+      'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
+      'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.',
+    ];
+    const formattedDate = `${now.getDate()} ${thaiMonths[now.getMonth()]} ${now.getFullYear() + 543} - ${now.toLocaleTimeString(
+      'th-TH',
+      { hour: '2-digit', minute: '2-digit' }
+    )} น.`;
+
+    const newHistoryItem: HistoryItem = {
+      id: `hist-${Date.now()}`,
+      documentName: docName,
+      score: langRes.score,
+      structureScore: structRes?.overallScore,
+      templateName: checkOptions.compareTemplate ? selectedTemplate.name : undefined,
+      date: formattedDate,
+      wordCount: langRes.wordCount,
+      writingStyle: writingStyle,
+      originalSnippet: langRes.originalText,
+      improvedSnippet: langRes.improvedText,
+    };
+
+    setHistory((prev) => [newHistoryItem, ...prev]);
+  };
+
   // Trigger Analysis
-  const handleAnalyze = () => {
+  const handleAnalyze = async () => {
     if (inputMode === 'text') {
       if (!text.trim()) {
         showToast('กรุณากรอกข้อความก่อนทำการตรวจสอบ', 'warning');
@@ -151,6 +180,41 @@ export const HomePage: React.FC = () => {
 
     setIsLoading(true);
 
+    try {
+      // 1. Attempt Real Backend API Call (FastAPI + PyThaiNLP)
+      const apiResponse = await submitAnalysis({
+        templateId: selectedTemplate.id,
+        writingStyle: writingStyle,
+        inputMode: inputMode,
+        text: inputMode === 'text' ? text : undefined,
+        file: inputMode === 'file' && uploadedFile?.rawFile ? uploadedFile.rawFile : undefined,
+      });
+
+      if (apiResponse.status === 'completed' && apiResponse.result) {
+        const { languageResult, structureResult } = apiResponse.result;
+        setAnalysisResult(languageResult);
+        setStructureResult(structureResult);
+
+        const docName = apiResponse.result.documentName || (inputMode === 'file' && uploadedFile ? uploadedFile.name : 'ข้อความทั่วไป.txt');
+        const contentForPreview = inputMode === 'file' && uploadedFile?.content ? uploadedFile.content : text;
+        setDocumentPreviewData(generateDocumentPreview(docName, selectedTemplate.name, contentForPreview));
+
+        recordHistory(docName, languageResult, structureResult);
+
+        if (inputMode === 'file') {
+          setPageView('document_fullscreen');
+          showToast(`[FastAPI + PyThaiNLP] ตรวจเอกสาร "${docName}" เรียบร้อยแล้ว`, 'success');
+        } else {
+          showToast(`[FastAPI + PyThaiNLP] ตรวจวิเคราะห์ข้อความ (${languageResult.score}/100) สำเร็จ`, 'success');
+        }
+        setIsLoading(false);
+        return;
+      }
+    } catch (err) {
+      console.warn('Backend API connection fallback to client engine:', err);
+    }
+
+    // 2. Client-side fallback if backend API is offline
     setTimeout(() => {
       let langResult: AnalysisResult;
       let structResult: StructureResult | null = null;
@@ -158,36 +222,17 @@ export const HomePage: React.FC = () => {
 
       if (inputMode === 'file' && uploadedFile) {
         docName = uploadedFile.name;
-        // Prioritize actual content extracted from the file, or fallback to textarea content
         const realContent = uploadedFile.content && uploadedFile.content.trim().length > 0
           ? uploadedFile.content.trim()
           : text.trim().length > 0
           ? text.trim()
           : 'บทที่ 1 บทนำ 1.1 ความเป็นมา การประมวลผลภาษาธรรมชาติ';
 
-        langResult = generateAnalysis(
-          realContent,
-          writingStyle,
-          uploadedFile.name
-        );
-
+        langResult = generateAnalysis(realContent, writingStyle, uploadedFile.name);
         if (checkOptions.compareTemplate || checkOptions.checkStructure) {
-          structResult = evaluateStructure(
-            realContent,
-            uploadedFile.name,
-            selectedTemplate
-          );
+          structResult = evaluateStructure(realContent, uploadedFile.name, selectedTemplate);
         }
-
-        // Generate document preview using THE REAL CONTENT
-        const preview = generateDocumentPreview(
-          uploadedFile.name,
-          selectedTemplate.name,
-          realContent
-        );
-        setDocumentPreviewData(preview);
-
-        // Transition to dedicated full screen document review
+        setDocumentPreviewData(generateDocumentPreview(uploadedFile.name, selectedTemplate.name, realContent));
         setPageView('document_fullscreen');
       } else {
         docName = `ข้อความ_${new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}.txt`;
@@ -195,52 +240,20 @@ export const HomePage: React.FC = () => {
         if (checkOptions.checkStructure) {
           structResult = evaluateStructure(text, undefined, selectedTemplate);
         }
-
-        // Also generate document preview using the real typed text
-        const preview = generateDocumentPreview(
-          docName,
-          selectedTemplate.name,
-          text
-        );
-        setDocumentPreviewData(preview);
+        setDocumentPreviewData(generateDocumentPreview(docName, selectedTemplate.name, text));
       }
 
       setAnalysisResult(langResult);
       setStructureResult(structResult);
+      recordHistory(docName, langResult, structResult);
       setIsLoading(false);
 
       if (inputMode === 'file') {
-        showToast(`ตรวจเอกสาร "${docName}" และเปิดหน้าพรีวิวเต็มจอเรียบร้อยแล้ว`, 'success');
+        showToast(`ตรวจเอกสาร "${docName}" และเปิดหน้าพรีวิวเรียบร้อยแล้ว`, 'success');
       } else {
         showToast(`ตรวจวิเคราะห์ข้อความ (${langResult.score}/100) สำเร็จ`, 'success');
       }
-
-      // Append to history
-      const now = new Date();
-      const thaiMonths = [
-        'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
-        'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.',
-      ];
-      const formattedDate = `${now.getDate()} ${thaiMonths[now.getMonth()]} ${now.getFullYear() + 543} - ${now.toLocaleTimeString(
-        'th-TH',
-        { hour: '2-digit', minute: '2-digit' }
-      )} น.`;
-
-      const newHistoryItem: HistoryItem = {
-        id: `hist-${Date.now()}`,
-        documentName: docName,
-        score: langResult.score,
-        structureScore: structResult?.overallScore,
-        templateName: checkOptions.compareTemplate ? selectedTemplate.name : undefined,
-        date: formattedDate,
-        wordCount: langResult.wordCount,
-        writingStyle: writingStyle,
-        originalSnippet: langResult.originalText,
-        improvedSnippet: langResult.improvedText,
-      };
-
-      setHistory((prev) => [newHistoryItem, ...prev]);
-    }, 750);
+    }, 400);
   };
 
   // Apply Improved Text back to editor
@@ -258,64 +271,46 @@ export const HomePage: React.FC = () => {
           analysisResult.improvedText.length
         );
       }
-    }, 50);
+    }, 100);
   };
 
-  const handleCopySuccess = () => {
-    showToast('คัดลอกข้อความแล้ว', 'success');
-  };
-
-  // Select item from history modal
+  // Restore item from History Modal
   const handleSelectHistoryItem = (item: HistoryItem) => {
     if (item.originalSnippet) {
       setInputMode('text');
       setText(item.originalSnippet);
-      const res = generateAnalysis(
+
+      const restoredAnalysis = generateAnalysis(
         item.originalSnippet,
         item.writingStyle || 'เชิงวิชาการ'
       );
-      setAnalysisResult(res);
+      setAnalysisResult(restoredAnalysis);
 
-      if (item.templateName) {
-        const matchedTemplate =
-          STANDARD_TEMPLATES.find((t) => t.name === item.templateName) ||
-          selectedTemplate;
-        setSelectedTemplate(matchedTemplate);
+      if (checkOptions.checkStructure) {
         setStructureResult(
-          evaluateStructure(item.originalSnippet, undefined, matchedTemplate)
+          evaluateStructure(item.originalSnippet, undefined, selectedTemplate)
         );
       }
 
-      showToast(`โหลดเอกสาร "${item.documentName}" แล้ว`, 'info');
+      showToast(`โหลดประวัติ "${item.documentName}" สำเร็จ`, 'info');
     }
-    setHistoryOpen(false);
-  };
-
-  const handleClearHistory = () => {
-    setHistory([]);
-    showToast('ล้างประวัติการตรวจสอบแล้ว', 'info');
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#F4F6F4] text-[#1E2923]">
-      {/* 
-        CASE 1: FULL SCREEN DOCUMENT REVIEW MODE ("เฉพาะในหน้านี้เท่านั้น")
-        The document is 100% full screen with transparent hover overlays!
-      */}
+    <div className="min-h-screen bg-[#F4F6F4] flex flex-col font-['Prompt',sans-serif]">
+      {/* Toast container */}
+      <Toast toasts={toasts} onDismiss={dismissToast} />
+
+      {/* Conditional Layout for Document Fullscreen Review */}
       {pageView === 'document_fullscreen' && documentPreviewData ? (
         <DocumentComparePreview
-          previewData={documentPreviewData}
-          analysisResult={analysisResult}
-          structureResult={structureResult}
-          onDownloadFeedback={(msg) => showToast(msg, 'success')}
-          isFullScreen={true}
-          onToggleFullScreen={() => setPageView('split')}
-          onBackToHome={() => setPageView('split')}
+          documentData={documentPreviewData}
+          onClose={() => setPageView('split')}
+          selectedTemplateName={selectedTemplate.name}
         />
       ) : (
-        /* CASE 2: NORMAL HOME VIEW (Standard Header, Hero, Input/Result Grid, Footer) */
         <>
-          {/* Header */}
+          {/* Main App Bar Header */}
           <Header
             onOpenHistory={() => setHistoryOpen(true)}
             onOpenGuide={() => setGuideOpen(true)}
@@ -323,13 +318,19 @@ export const HomePage: React.FC = () => {
           />
 
           {/* Hero Section */}
-          <Hero />
+          <Hero
+            onStartWriting={() => {
+              if (textareaRef.current) {
+                textareaRef.current.focus();
+              }
+            }}
+          />
 
-          {/* Main Workspace Container */}
-          <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-4 sm:mt-6 pb-12">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-8 items-start">
-              {/* Left Column: Input Panel */}
-              <section aria-label="กล่องป้อนข้อความและเอกสาร">
+          {/* Main Content Workspace */}
+          <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+              {/* Left Column: Input & Settings (7 cols) */}
+              <div className="lg:col-span-7 space-y-6">
                 <InputPanel
                   checkOptions={checkOptions}
                   onCheckOptionsChange={setCheckOptions}
@@ -354,10 +355,10 @@ export const HomePage: React.FC = () => {
                   isLoading={isLoading}
                   textareaRef={textareaRef}
                 />
-              </section>
+              </div>
 
-              {/* Right Column: Result Panel */}
-              <section aria-label="ผลการตรวจสอบและข้อเสนอแนะ">
+              {/* Right Column: Analysis Results (5 cols) */}
+              <div className="lg:col-span-5 space-y-6">
                 <ResultPanel
                   mode={inputMode}
                   checkOptions={checkOptions}
@@ -366,15 +367,21 @@ export const HomePage: React.FC = () => {
                   documentPreviewData={documentPreviewData}
                   isLoading={isLoading}
                   onApplyImprovement={handleApplyImprovement}
-                  onCopySuccess={handleCopySuccess}
-                  onDownloadFeedback={(msg) => showToast(msg, 'success')}
-                  onOpenFullScreen={() => setPageView('document_fullscreen')}
+                  onCopySuccess={() => showToast('คัดลอกข้อความแล้ว', 'success')}
+                  onDownloadFeedback={(msg) => showToast(msg, 'info')}
+                  onOpenFullScreen={() => {
+                    if (documentPreviewData) {
+                      setPageView('document_fullscreen');
+                    } else {
+                      showToast('กรุณากดตรวจเอกสารก่อนดูพรีวิว', 'warning');
+                    }
+                  }}
                 />
-              </section>
+              </div>
             </div>
           </main>
 
-          {/* Footer */}
+          {/* Site Footer */}
           <Footer />
         </>
       )}
@@ -385,22 +392,9 @@ export const HomePage: React.FC = () => {
         onClose={() => setHistoryOpen(false)}
         history={history}
         onSelectHistoryItem={handleSelectHistoryItem}
-        onClearHistory={handleClearHistory}
       />
-
-      <GuideModal
-        isOpen={guideOpen}
-        onClose={() => setGuideOpen(false)}
-      />
-
-      <ProfileModal
-        isOpen={profileOpen}
-        onClose={() => setProfileOpen(false)}
-        totalChecks={history.length}
-      />
-
-      {/* Toast Feedback */}
-      <Toast toasts={toasts} onDismiss={dismissToast} />
+      <GuideModal isOpen={guideOpen} onClose={() => setGuideOpen(false)} />
+      <ProfileModal isOpen={profileOpen} onClose={() => setProfileOpen(false)} />
     </div>
   );
 };
