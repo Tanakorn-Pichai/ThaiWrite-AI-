@@ -1,0 +1,40 @@
+import { HistoryItem } from '../types';
+
+export const INITIAL_MOCK_HISTORY: HistoryItem[] = [
+  {
+    id: 'hist-1',
+    documentName: 'รายงานเรื่อง เทคโนโลยีปัญญาประดิษฐ์.docx',
+    score: 87,
+    structureScore: 90,
+    templateName: 'แม่แบบรายงานโครงงานปริญญานิพนธ์',
+    date: '24 ก.ย. 2026 - 14:32 น.',
+    wordCount: 1248,
+    writingStyle: 'เชิงวิชาการ',
+    originalSnippet: 'นักศึกษามีความต้องการที่จะทำการส่งรายงานภายในวันพรุ่งนี้',
+    improvedSnippet: 'นักศึกษาต้องการส่งรายงานภายในวันพรุ่งนี้',
+  },
+  {
+    id: 'hist-2',
+    documentName: 'บทวิเคราะห์พฤติกรรมผู้บริโภค.docx',
+    score: 92,
+    structureScore: 88,
+    templateName: 'แม่แบบบทความวิชาการ / บทความวิจัย',
+    date: '22 ก.ย. 2026 - 10:15 น.',
+    wordCount: 3420,
+    writingStyle: 'รายงาน',
+    originalSnippet: 'ได้ทำการสำรวจกลุ่มตัวอย่างจำนวนเยอะแยะเพื่อที่จะสรุปผล',
+    improvedSnippet: 'ได้สำรวจกลุ่มตัวอย่างจำนวนมากเพื่อสรุปผลการศึกษา',
+  },
+  {
+    id: 'hist-3',
+    documentName: 'โครงร่างวิทยานิพนธ์_บทที่1_ความเป็นมา.docx',
+    score: 89,
+    structureScore: 92,
+    templateName: 'แม่แบบวิทยานิพนธ์ / สารนิพนธ์ 5 บท',
+    date: '19 ก.ย. 2026 - 16:45 น.',
+    wordCount: 2850,
+    writingStyle: 'วิทยานิพนธ์',
+    originalSnippet: 'ในการจัดสัมนาครั้งนี้มีจุดประสงค์เพื่อที่จะพัฒนาทักษะ',
+    improvedSnippet: 'ในการจัดสัมมนาครั้งนี้มีวัตถุประสงค์เพื่อพัฒนาทักษะ',
+  },
+];

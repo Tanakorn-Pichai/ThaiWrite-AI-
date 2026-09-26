@@ -1,0 +1,43 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --primary: #006241;
+    --primary-dark: #004d33;
+    --secondary: #E2ECE5;
+    --secondary-tint: rgba(0, 98, 65, 0.12);
+    --light-green: #E2ECE5;
+    --bg-page: #F4F6F4;
+    --card: #FFFFFF;
+    --text-primary: #1E2923;
+    --text-light: #5A655E;
+    --text-muted: #828F86;
+    --border-color: #DCE3DD;
+    --color-error: #D9534F;
+    --color-warning: #E5A83B;
+    --color-success: #006241;
+    --color-purple: #7C3AED;
+    --color-blue: #2563EB;
+  }
+
+  body {
+    font-family: 'Prompt', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background-color: #F4F6F4;
+    color: #1E2923;
+  }
+}
+
+/* Custom scrollbars and transitions */
+::selection {
+  background-color: #006241;
+  color: #ffffff;
+}
+
+@keyframes pulse-subtle {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.animate-pulse-subtle {
+  animation: pulse-subtle 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
