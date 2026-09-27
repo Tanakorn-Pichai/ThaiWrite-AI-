@@ -61,6 +61,8 @@ ACADEMIC_REPLACEMENTS: List[Tuple[str, str, str, str]] = [
     ("แบบว่า", "", "academic", "ตัดคำภาษาพูดที่ไม่จำเป็นออก"),
     ("ก็คือ", "คือ", "academic", "ตัดคำฟุ่มเฟือย 'ก็' ออก"),
     ("ทำเรื่อง", "ยื่นคำร้อง", "academic", "ใช้ภาษาวิชาการ/ราชการที่เป็นทางการ"),
+    ("แดก", "รับประทาน", "academic", "ปรับคำหยาบหรือภาษาสแลงเป็นภาษาสุภาพ"),
+    ("รึยัง", "หรือยัง", "academic", "ปรับภาษาพูดให้เป็นภาษามาตรฐาน"),
 
     # 4. โครงสร้างประโยคไม่สมบูรณ์ (Incomplete Sentence Structure)
     ("จึงทำให้เกิด", "ส่งผลให้เกิด", "grammar", "ปรับโครงสร้างประโยคเชื่อมโยงเหตุและผลให้สมบูรณ์"),
@@ -106,6 +108,7 @@ KNOWN_MISSPELLINGS: Dict[str, str] = {
     "สาระณียกรรม": "สารานียกรรม",
     "ปฏิสังขร": "ปฏิสังขรณ์",
     "อนุญาติ": "อนุญาต",
+    "ผูกพันธ์": "ผูกพัน",
     "สังเกตุ": "สังเกต",
     "ประมาท": "ประมาท",
 }
@@ -150,16 +153,20 @@ def analyze_thai_text(text: str, writing_style: str = "เชิงวิชา�
     # ── 2. Spelling check via PyThaiNLP ──
     spelling_issues = _check_spelling(words, cleaned)
 
-    # ── 3. Repeated words check (คำซ้ำซ้อน) ──
-    repeated_issues, text_after_rep = _check_repeated_words(cleaned)
+    # ── 3. Spacing and Thai repetition mark checks ──
+    spacing_issues, text_after_spacing = _check_spacing_and_repetition_marks(cleaned)
+    improved_spacing_text = _apply_issue_replacements(text_after_spacing, spacing_issues)
 
-    # ── 4. Grammar and style rules ──
+    # ── 4. Repeated words check (คำซ้ำซ้อน) ──
+    repeated_issues, text_after_rep = _check_repeated_words(improved_spacing_text)
+
+    # ── 5. Grammar and style rules ──
     style_issues, improved_text = _apply_academic_rules(
         text_after_rep,
         allowed_types=STYLE_RULE_TYPES.get(writing_style, {"wordUsage", "academic"}),
     )
 
-    # ── 5. Sentence structure and semantic consistency check ──
+    # ── 6. Sentence structure and semantic consistency check ──
     structure_issues = _check_sentence_structure(cleaned)
     for issue in sorted(
         (item for item in structure_issues if item.get("start_offset") is not None),
@@ -173,7 +180,7 @@ def analyze_thai_text(text: str, writing_style: str = "เชิงวิชา�
     # ── 6. Aggregate issues (Deduplicate while preserving order) ──
     all_issues = []
     seen_issues = set()
-    for iss in (spelling_issues + repeated_issues + style_issues + structure_issues):
+    for iss in (spelling_issues + spacing_issues + repeated_issues + style_issues + structure_issues):
         issue_key = (
             iss["type"],
             iss["detected_text"],
@@ -195,9 +202,11 @@ def analyze_thai_text(text: str, writing_style: str = "เชิงวิชา�
         "wordUsage": len([i for i in all_issues if i["type"] == "wordUsage"]),
         "academic": len([i for i in all_issues if i["type"] == "academic"]),
     }
-    issue_count = sum(categories.values())
+    # Include new categories such as punctuation in the total even though the
+    # legacy category counters remain limited to the four UI buckets.
+    issue_count = len(all_issues)
 
-    # ── 7. Score calculation ──
+    # ── 8. Score calculation ──
     score = max(60, 100 - issue_count * 3)
 
     # Primary issue for top-level display
@@ -250,6 +259,20 @@ def _check_spelling(words: List[str], text: str) -> List[Dict[str, Any]]:
     issues: List[Dict[str, Any]] = []
     thai_word_set = _thai_word_set()
 
+    # Scan high-confidence dictionary corrections directly because tokenizers
+    # may split a misspelling into fragments before the token-level pass.
+    for misspelled, replacement in KNOWN_MISSPELLINGS.items():
+        for match in re.finditer(re.escape(misspelled), text):
+            issues.append({
+                "type": "spelling",
+                "detected_text": misspelled,
+                "replacement": replacement,
+                "suggestions": [replacement],
+                "reason": f"คำว่า '{misspelled}' สะกดผิด ควรเปลี่ยนเป็น '{replacement}' ตามพจนานุกรมราชบัณฑิตยสถาน",
+                "start_offset": match.start(),
+                "end_offset": match.end(),
+            })
+
     for word in words:
         w = word.strip()
         if not w or len(w) < 2:
@@ -289,6 +312,83 @@ def _check_spelling(words: List[str], text: str) -> List[Dict[str, Any]]:
                 })
 
     return issues
+
+
+def _check_spacing_and_repetition_marks(text: str) -> Tuple[List[Dict[str, Any]], str]:
+    """Check whitespace, punctuation spacing, and Thai repetition mark (ๆ) usage."""
+    issues: List[Dict[str, Any]] = []
+
+    for match in re.finditer(r" {2,}|\t+", text):
+        issues.append({
+            "type": "punctuation",
+            "detected_text": match.group(0),
+            "replacement": " ",
+            "suggestions": [" "],
+            "reason": "พบช่องว่างซ้ำ ควรเว้นวรรคเพียงหนึ่งช่อง",
+            "start_offset": match.start(),
+            "end_offset": match.end(),
+        })
+
+    for match in re.finditer(r"\s+([,.;:!?])", text):
+        issues.append({
+            "type": "punctuation",
+            "detected_text": match.group(0),
+            "replacement": match.group(1),
+            "suggestions": [match.group(1)],
+            "reason": "ไม่ควรเว้นวรรคก่อนเครื่องหมายวรรคตอน",
+            "start_offset": match.start(),
+            "end_offset": match.end(),
+        })
+
+    # A repetition mark must be separated from a following word. For example,
+    # ``เป็นระยะๆระหว่าง`` should be ``เป็นระยะๆ ระหว่าง``. A mark at the end
+    # of a sentence or before punctuation is valid and is left unchanged.
+    for match in re.finditer(r"ๆ(?=[ก-๙])", text):
+        issues.append({
+            "type": "punctuation",
+            "detected_text": "ๆ",
+            "replacement": "ๆ ",
+            "suggestions": ["ๆ "],
+            "reason": "ควรเว้นวรรคหลังไม้ยมกก่อนเริ่มคำถัดไป",
+            "start_offset": match.start(),
+            "end_offset": match.end(),
+        })
+
+    # Valid forms are เด็กๆ and เด็ก ๆ. Reject a repeated mark or a mark
+    # separated from its preceding word by more than one space.
+    for match in re.finditer(r"(?P<before>\S)(?P<spaces>\s{2,})ๆ|ๆ{2,}", text):
+        replacement = f"{match.group('before')} ๆ" if match.groupdict().get("before") else "ๆ"
+        issues.append({
+            "type": "grammar",
+            "detected_text": match.group(0),
+            "replacement": replacement,
+            "suggestions": [replacement],
+            "reason": "การใช้ไม้ยมก (ๆ) ไม่ถูกต้อง ควรใช้หลังคำซ้ำหนึ่งครั้งและเว้นวรรคอย่างเหมาะสม",
+            "start_offset": match.start(),
+            "end_offset": match.end(),
+        })
+
+    for match in re.finditer(r"(?P<word>[ก-๙]{2,})\s+ๆ", text):
+        # One space is a valid formal form (เช่น เด็ก ๆ); do not report it.
+        if len(match.group(0)) - len(match.group("word")) > 2:
+            issues.append({
+                "type": "grammar",
+                "detected_text": match.group(0),
+                "replacement": f"{match.group('word')} ๆ",
+                "suggestions": [f"{match.group('word')} ๆ"],
+                "reason": "ควรเว้นวรรคก่อนไม้ยมกเพียงหนึ่งช่อง",
+                "start_offset": match.start(),
+                "end_offset": match.end(),
+            })
+
+    return issues, text
+
+
+def _apply_issue_replacements(text: str, issues: List[Dict[str, Any]]) -> str:
+    improved = text
+    for issue in sorted(issues, key=lambda item: item["start_offset"], reverse=True):
+        improved = improved[:issue["start_offset"]] + issue["replacement"] + improved[issue["end_offset"]:]
+    return improved
 
 
 def _check_repeated_words(text: str) -> Tuple[List[Dict[str, str]], str]:
