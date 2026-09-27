@@ -26,7 +26,7 @@ import {
   DEFAULT_MOCK_ANALYSIS,
   generateAnalysis,
 } from '../data/mockAnalysis';
-import { STANDARD_TEMPLATES, evaluateStructure } from '../data/mockTemplates';
+import { STANDARD_TEMPLATES, evaluateStructure, buildCustomDocTemplate } from '../data/mockTemplates';
 import { INITIAL_MOCK_HISTORY } from '../data/mockHistory';
 import { generateDocumentPreview } from '../data/mockDocumentPreview';
 import { submitAnalysis } from '../services/api';
@@ -136,6 +136,11 @@ export const HomePage: React.FC = () => {
     showToast('เปลี่ยนกลับมาใช้แม่แบบมาตรฐาน', 'info');
   };
 
+  // Active effective template (custom template if uploaded, otherwise selected standard template)
+  const activeTemplate: DocTemplate = customTemplateFile
+    ? buildCustomDocTemplate(customTemplateFile)
+    : selectedTemplate;
+
   // Helper to record history
   const recordHistory = (docName: string, langRes: AnalysisResult, structRes: StructureResult | null) => {
     const now = new Date();
@@ -153,7 +158,7 @@ export const HomePage: React.FC = () => {
       documentName: docName,
       score: langRes.score,
       structureScore: structRes?.overallScore,
-      templateName: checkOptions.compareTemplate ? selectedTemplate.name : undefined,
+      templateName: checkOptions.compareTemplate ? activeTemplate.name : undefined,
       date: formattedDate,
       wordCount: langRes.wordCount,
       writingStyle: writingStyle,
@@ -183,7 +188,7 @@ export const HomePage: React.FC = () => {
     try {
       // 1. Attempt Real Backend API Call (FastAPI + PyThaiNLP)
       const apiResponse = await submitAnalysis({
-        templateId: selectedTemplate.id,
+        templateId: activeTemplate.id,
         writingStyle: writingStyle,
         inputMode: inputMode,
         text: inputMode === 'text' ? text : undefined,
@@ -197,13 +202,13 @@ export const HomePage: React.FC = () => {
 
         const docName = apiResponse.result.documentName || (inputMode === 'file' && uploadedFile ? uploadedFile.name : 'ข้อความทั่วไป.txt');
         const contentForPreview = inputMode === 'file' && uploadedFile?.content ? uploadedFile.content : text;
-        setDocumentPreviewData(generateDocumentPreview(docName, selectedTemplate.name, contentForPreview));
+        setDocumentPreviewData(generateDocumentPreview(docName, activeTemplate.name, contentForPreview));
 
         recordHistory(docName, languageResult, structureResult);
 
         if (inputMode === 'file') {
           setPageView('document_fullscreen');
-          showToast(`[FastAPI + PyThaiNLP] ตรวจเอกสาร "${docName}" เรียบร้อยแล้ว`, 'success');
+          showToast(`[FastAPI + PyThaiNLP] ตรวจเทียบกับ ${activeTemplate.name} สำเร็จ`, 'success');
         } else {
           showToast(`[FastAPI + PyThaiNLP] ตรวจวิเคราะห์ข้อความ (${languageResult.score}/100) สำเร็จ`, 'success');
         }
@@ -230,17 +235,17 @@ export const HomePage: React.FC = () => {
 
         langResult = generateAnalysis(realContent, writingStyle, uploadedFile.name);
         if (checkOptions.compareTemplate || checkOptions.checkStructure) {
-          structResult = evaluateStructure(realContent, uploadedFile.name, selectedTemplate);
+          structResult = evaluateStructure(realContent, uploadedFile.name, activeTemplate);
         }
-        setDocumentPreviewData(generateDocumentPreview(uploadedFile.name, selectedTemplate.name, realContent));
+        setDocumentPreviewData(generateDocumentPreview(uploadedFile.name, activeTemplate.name, realContent));
         setPageView('document_fullscreen');
       } else {
         docName = `ข้อความ_${new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}.txt`;
         langResult = generateAnalysis(text, writingStyle);
         if (checkOptions.checkStructure) {
-          structResult = evaluateStructure(text, undefined, selectedTemplate);
+          structResult = evaluateStructure(text, undefined, activeTemplate);
         }
-        setDocumentPreviewData(generateDocumentPreview(docName, selectedTemplate.name, text));
+        setDocumentPreviewData(generateDocumentPreview(docName, activeTemplate.name, text));
       }
 
       setAnalysisResult(langResult);
@@ -249,7 +254,7 @@ export const HomePage: React.FC = () => {
       setIsLoading(false);
 
       if (inputMode === 'file') {
-        showToast(`ตรวจเอกสาร "${docName}" และเปิดหน้าพรีวิวเรียบร้อยแล้ว`, 'success');
+        showToast(`ตรวจเทียบแม่แบบกับ "${activeTemplate.name}" เรียบร้อยแล้ว`, 'success');
       } else {
         showToast(`ตรวจวิเคราะห์ข้อความ (${langResult.score}/100) สำเร็จ`, 'success');
       }

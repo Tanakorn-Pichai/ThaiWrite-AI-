@@ -130,6 +130,63 @@ export const STANDARD_TEMPLATES: DocTemplate[] = [
 ];
 
 /**
+ * Dynamically construct a DocTemplate from an uploaded custom template file
+ */
+export function buildCustomDocTemplate(customFile: { name: string; content?: string }): DocTemplate {
+  const content = customFile.content || '';
+  const lines = content.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+
+  const headingCandidates: Array<{ title: string; level: 1 | 2 }> = [];
+  const headingRegex = /^(บทที่\s*\d+|ส่วนที่\s*\d+|\d+\.\d+|\d+\.\s+|คำนำ|สารบัญ|บทคัดย่อ|วัตถุประสงค์|ขอบเขต|ความเป็นมา|ประโยชน์|เอกสารอ้างอิง|บรรณานุกรม|สรุปผล|ภาคผนวก)/i;
+
+  lines.forEach((line) => {
+    if (headingRegex.test(line) && line.length < 100) {
+      const isSub = /^\d+\.\d+/.test(line);
+      headingCandidates.push({
+        title: line,
+        level: isSub ? 2 : 1,
+      });
+    }
+  });
+
+  const requiredSections = headingCandidates.length >= 3
+    ? headingCandidates.map((h, i) => ({
+        id: `custom-sec-${i + 1}`,
+        title: h.title,
+        level: h.level,
+        required: true,
+      }))
+    : [
+        { id: 'c1', title: '1. ชื่อเรื่องและที่มาของโครงการ/วิจัย', level: 1 as const, required: true },
+        { id: 'c2', title: '2. วัตถุประสงค์และขอบเขตของการดำเนินงาน', level: 1 as const, required: true },
+        { id: 'c3', title: '3. ทฤษฎีและแนวคิดที่เกี่ยวข้อง', level: 1 as const, required: true },
+        { id: 'c4', title: '4. วิธีการดำเนินงานและการทดสอบระบบ', level: 1 as const, required: true },
+        { id: 'c5', title: '5. สรุปผลการศึกษาและข้อเสนอแนะ', level: 1 as const, required: true },
+        { id: 'c6', title: 'เอกสารอ้างอิง / บรรณานุกรม', level: 1 as const, required: true },
+      ];
+
+  return {
+    id: `custom-${customFile.name}`,
+    name: `แม่แบบเฉพาะ: ${customFile.name}`,
+    shortName: customFile.name,
+    code: 'CUSTOM-TEMPLATE',
+    category: 'custom',
+    description: `แม่แบบเฉพาะสถาบัน/คณะที่อัปโหลดจากไฟล์: ${customFile.name}`,
+    university: 'สถาบัน/คณะเจ้าของไฟล์แม่แบบเฉพาะ',
+    isCustom: true,
+    requiredSections,
+    formattingRules: {
+      fontFamily: 'TH Sarabun New / ตามไฟล์แม่แบบเฉพาะ',
+      fontSizeHeading: '18pt ตัวหนา (หัวข้อหลัก)',
+      fontSizeBody: '16pt ตัวปกติ',
+      margins: 'ระยะขอบตามมาตรฐานไฟล์แม่แบบเฉพาะที่อัปโหลด',
+      lineSpacing: '1.0 เท่า (Single Space)',
+      pageNumbering: 'ตามข้อกำหนดของไฟล์แม่แบบเฉพาะ',
+    },
+  };
+}
+
+/**
  * Perform template and structure compliance check
  */
 export function evaluateStructure(
