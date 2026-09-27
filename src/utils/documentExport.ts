@@ -1,5 +1,19 @@
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
+import {
+  AlignmentType,
+  BorderStyle,
+  Document,
+  HeadingLevel,
+  PageBreak,
+  Packer,
+  Paragraph,
+  ShadingType,
+  Table,
+  TableCell,
+  TableRow,
+  TextRun,
+} from 'docx';
 import { DocumentAnnotation, DocumentPreviewData, StructureResult, AnalysisResult } from '../types';
 
 const escapeHtml = (value: string) => value
@@ -29,11 +43,7 @@ function renderReviewedParagraph(
 
   let remaining = text;
   let html = '';
-  const sorted = [...annotations].sort((a, b) => {
-    const aIndex = text.indexOf(a.originalText);
-    const bIndex = text.indexOf(b.originalText);
-    return aIndex - bIndex;
-  });
+  const sorted = [...annotations].sort((a, b) => text.indexOf(a.originalText) - text.indexOf(b.originalText));
 
   sorted.forEach((annotation) => {
     const targetIndex = remaining.indexOf(annotation.originalText);
@@ -53,39 +63,19 @@ function renderReviewedParagraph(
 
 function chunkItems<T>(items: T[], size: number): T[][] {
   const chunks: T[][] = [];
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size));
-  }
+  for (let index = 0; index < items.length; index += size) chunks.push(items.slice(index, index + size));
   return chunks;
 }
 
 function renderCommentCard(annotation: DocumentAnnotation, index: number): string {
   const number = markerNumber(annotation, index + 1);
-  return `
-    <article class="review-comment">
-      <div class="review-comment-header">
-        <span class="comment-number">[${number}]</span>
-        <strong>${annotation.type === 'word' ? 'คำผิด / ไวยากรณ์' : 'โครงสร้างเอกสาร'}</strong>
-      </div>
-      <div class="comment-grid">
-        <div class="comment-original"><small>ข้อความเดิม</small><span>${escapeHtml(annotation.originalText)}</span></div>
-        <div class="comment-suggestion"><small>คำแนะนำแก้ไข</small><span>${escapeHtml(annotation.suggestedText || '-')}</span></div>
-      </div>
-      <p class="comment-reason"><strong>คำอธิบาย:</strong> ${escapeHtml(annotation.comment)}</p>
-    </article>`;
+  return `<article class="review-comment"><div class="review-comment-header"><span class="comment-number">[${number}]</span><strong>${annotation.type === 'word' ? 'คำผิด / ไวยากรณ์' : 'โครงสร้างเอกสาร'}</strong></div><div class="comment-grid"><div class="comment-original"><small>ข้อความเดิม</small><span>${escapeHtml(annotation.originalText)}</span></div><div class="comment-suggestion"><small>คำแนะนำแก้ไข</small><span>${escapeHtml(annotation.suggestedText || '-')}</span></div></div><p class="comment-reason"><strong>คำอธิบาย:</strong> ${escapeHtml(annotation.comment)}</p></article>`;
 }
 
 function renderCommentsPages(annotations: DocumentAnnotation[]): string {
   const pages = chunkItems(annotations, 5);
-  if (pages.length === 0) {
-    pages.push([]);
-  }
-  return pages.map((page, pageIndex) => `
-    <section class="comments-page">
-      <h2 class="comments-title">บันทึกข้อคิดเห็นและรายการตรวจแก้</h2>
-      <p class="comments-subtitle">หน้า ${pageIndex + 1} | รายละเอียดอ้างอิงตามหมายเลขที่แสดงบนข้อความฉบับตรวจแก้</p>
-      ${page.length ? page.map((annotation, index) => renderCommentCard(annotation, pageIndex * 5 + index)).join('') : '<p>ไม่พบข้อคิดเห็นเพิ่มเติม</p>'}
-    </section>`).join('');
+  if (!pages.length) pages.push([]);
+  return pages.map((page, pageIndex) => `<section class="comments-page"><h2 class="comments-title">บันทึกข้อคิดเห็นและรายการตรวจแก้</h2><p class="comments-subtitle">หน้า ${pageIndex + 1} | รายละเอียดอ้างอิงตามหมายเลขที่แสดงบนข้อความฉบับตรวจแก้</p>${page.length ? page.map((annotation, index) => renderCommentCard(annotation, pageIndex * 5 + index)).join('') : '<p>ไม่พบข้อคิดเห็นเพิ่มเติม</p>'}</section>`).join('');
 }
 
 function statusLabel(status: string): string {
@@ -98,43 +88,11 @@ function statusLabel(status: string): string {
 function renderStructurePages(structureResult: StructureResult | null | undefined): string {
   if (!structureResult) return '';
   const { sectionsSummary, sectionChecks, formattingChecks, structureRecommendations } = structureResult;
-  const sectionChunks = chunkItems(sectionChecks, 6);
-  const formattingChunks = chunkItems(formattingChecks, 4);
-  const recommendationChunks = chunkItems(structureRecommendations, 6);
   const pages: string[] = [];
-
-  pages.push(`<section class="structure-page">
-    <h2 class="comments-title">รายงานตรวจรูปแบบเอกสาร</h2>
-    <p class="comments-subtitle">${escapeHtml(structureResult.templateName)} | สถานะ: ${statusLabel(structureResult.complianceStatus)}</p>
-    <div class="structure-summary"><strong>คะแนนโครงสร้าง: ${structureResult.overallScore}/100</strong><span>ครบ ${sectionsSummary.matched}</span><span>ขาด ${sectionsSummary.missing}</span><span>สลับลำดับ ${sectionsSummary.outOfOrder}</span></div>
-    <h3 class="structure-heading">สรุปการตรวจ</h3>
-    <p class="structure-note">ตรวจทั้งหมด ${sectionsSummary.total} หัวข้อ ตามลำดับและเกณฑ์ของรูปแบบเอกสาร</p>
-  </section>`);
-
-  sectionChunks.forEach((chunk, pageIndex) => {
-    pages.push(`<section class="structure-page">
-      <h2 class="comments-title">รายการหัวข้อตามรูปแบบเอกสาร</h2>
-      <p class="comments-subtitle">หน้า ${pageIndex + 1} | ${escapeHtml(structureResult.templateName)}</p>
-      ${chunk.map((section) => `<article class="structure-item"><div><strong>${escapeHtml(section.title)}</strong><small>ลำดับ #${section.expectedPosition} | ${escapeHtml(section.note)}</small></div><span class="status-badge status-${section.status}">${statusLabel(section.status)}</span></article>`).join('')}
-    </section>`);
-  });
-
-  formattingChunks.forEach((chunk, pageIndex) => {
-    pages.push(`<section class="structure-page">
-      <h2 class="comments-title">การจัดหน้าและรูปแบบ</h2>
-      <p class="comments-subtitle">หน้า ${pageIndex + 1} | แบบอักษร ระยะขอบ เลขหน้า และระยะบรรทัด</p>
-      ${chunk.map((rule) => `<article class="structure-item structure-item-block"><div><strong>${escapeHtml(rule.ruleName)}</strong><small>เกณฑ์: ${escapeHtml(rule.expected)}</small><small>ที่ตรวจพบ: ${escapeHtml(rule.detected)}</small><small>คำแนะนำ: ${escapeHtml(rule.recommendation)}</small></div><span class="status-badge status-${rule.status}">${statusLabel(rule.status)}</span></article>`).join('')}
-    </section>`);
-  });
-
-  recommendationChunks.forEach((chunk, pageIndex) => {
-    pages.push(`<section class="structure-page">
-      <h2 class="comments-title">ข้อเสนอแนะการปรับปรุง</h2>
-      <p class="comments-subtitle">หน้า ${pageIndex + 1} | ${escapeHtml(structureResult.templateName)}</p>
-      ${chunk.map((recommendation, index) => `<article class="recommendation-item"><span>${pageIndex * 6 + index + 1}</span><p>${escapeHtml(recommendation)}</p></article>`).join('')}
-    </section>`);
-  });
-
+  pages.push(`<section class="structure-page"><h2 class="comments-title">รายงานตรวจรูปแบบเอกสาร</h2><p class="comments-subtitle">${escapeHtml(structureResult.templateName)} | สถานะ: ${statusLabel(structureResult.complianceStatus)}</p><div class="structure-summary"><strong>คะแนนโครงสร้าง: ${structureResult.overallScore}/100</strong><span>ครบ ${sectionsSummary.matched}</span><span>ขาด ${sectionsSummary.missing}</span><span>สลับลำดับ ${sectionsSummary.outOfOrder}</span></div><h3 class="structure-heading">สรุปการตรวจ</h3><p class="structure-note">ตรวจทั้งหมด ${sectionsSummary.total} หัวข้อ ตามลำดับและเกณฑ์ของรูปแบบเอกสาร</p></section>`);
+  chunkItems(sectionChecks, 6).forEach((chunk, pageIndex) => pages.push(`<section class="structure-page"><h2 class="comments-title">รายการหัวข้อตามรูปแบบเอกสาร</h2><p class="comments-subtitle">หน้า ${pageIndex + 1} | ${escapeHtml(structureResult.templateName)}</p>${chunk.map((section) => `<article class="structure-item"><div><strong>${escapeHtml(section.title)}</strong><small>ลำดับ #${section.expectedPosition} | ${escapeHtml(section.note)}</small></div><span class="status-badge status-${section.status}">${statusLabel(section.status)}</span></article>`).join('')}</section>`));
+  chunkItems(formattingChecks, 4).forEach((chunk, pageIndex) => pages.push(`<section class="structure-page"><h2 class="comments-title">การจัดหน้าและรูปแบบ</h2><p class="comments-subtitle">หน้า ${pageIndex + 1} | แบบอักษร ระยะขอบ เลขหน้า และระยะบรรทัด</p>${chunk.map((rule) => `<article class="structure-item structure-item-block"><div><strong>${escapeHtml(rule.ruleName)}</strong><small>เกณฑ์: ${escapeHtml(rule.expected)}</small><small>ที่ตรวจพบ: ${escapeHtml(rule.detected)}</small><small>คำแนะนำ: ${escapeHtml(rule.recommendation)}</small></div><span class="status-badge status-${rule.status}">${statusLabel(rule.status)}</span></article>`).join('')}</section>`));
+  chunkItems(structureRecommendations, 6).forEach((chunk, pageIndex) => pages.push(`<section class="structure-page"><h2 class="comments-title">ข้อเสนอแนะการปรับปรุง</h2><p class="comments-subtitle">หน้า ${pageIndex + 1} | ${escapeHtml(structureResult.templateName)}</p>${chunk.map((recommendation, index) => `<article class="recommendation-item"><span>${pageIndex * 6 + index + 1}</span><p>${escapeHtml(recommendation)}</p></article>`).join('')}</section>`));
   return pages.join('');
 }
 
@@ -194,17 +152,31 @@ function buildReviewHtml(
     const paragraphs = page.annotatedParagraphs.map((paragraph) => (
       `<p>${renderReviewedParagraph(paragraph.text, paragraph.annotations || [], fallbackNumber)}</p>`
     )).join('');
-    return `<section class="review-page">
-      <h1 class="review-title">ฉบับตรวจแก้: ${escapeHtml(previewData.documentName)}</h1>
-      <div class="review-meta">หน้า ${page.pageNumber} | ${analysisResult ? `คะแนนภาษา ${analysisResult.score}/100` : ''}${structureResult ? ` | คะแนนโครงสร้าง ${structureResult.overallScore}/100` : ''}</div>
-      <main class="review-body">${paragraphs}</main>
-    </section>`;
+    return `<section class="review-page"><h1 class="review-title">ฉบับตรวจแก้: ${escapeHtml(previewData.documentName)}</h1><div class="review-meta">หน้า ${page.pageNumber} | ${analysisResult ? `คะแนนภาษา ${analysisResult.score}/100` : ''}${structureResult ? ` | คะแนนโครงสร้าง ${structureResult.overallScore}/100` : ''}</div><main class="review-body">${paragraphs}</main></section>`;
   }).join('');
+  return `<!doctype html><html lang="th"><head><meta charset="utf-8"><style>${buildReviewStyles()}</style></head><body>${contentPages}${renderCommentsPages(annotations)}${renderStructurePages(structureResult)}</body></html>`;
+}
 
-  const commentsPages = renderCommentsPages(annotations);
-  const structurePages = renderStructurePages(structureResult);
+function textRun(text: string, options: Record<string, unknown> = {}): TextRun {
+  return new TextRun({ text, ...options } as never);
+}
 
-  return `<!doctype html><html lang="th"><head><meta charset="utf-8"><style>${buildReviewStyles()}</style></head><body>${contentPages}${commentsPages}${structurePages}</body></html>`;
+function reviewedRuns(paragraph: string, annotations: DocumentAnnotation[], fallbackNumber: { value: number }): TextRun[] {
+  if (!annotations.length) return [textRun(paragraph)];
+  const runs: TextRun[] = [];
+  let remaining = paragraph;
+  annotations.forEach((annotation) => {
+    const index = remaining.indexOf(annotation.originalText);
+    if (index < 0) return;
+    if (index) runs.push(textRun(remaining.slice(0, index)));
+    const number = markerNumber(annotation, ++fallbackNumber.value);
+    const color = annotation.type === 'word' ? '9E2A2B' : '006241';
+    runs.push(textRun(`[${number}]`, { superScript: true, color, bold: true }));
+    runs.push(textRun(annotation.originalText, { bold: true, color, shading: { type: ShadingType.SOLID, color: annotation.type === 'word' ? 'FFE5D9' : 'DFF4E8' } }));
+    remaining = remaining.slice(index + annotation.originalText.length);
+  });
+  if (remaining) runs.push(textRun(remaining));
+  return runs;
 }
 
 /** Generate a Thai-capable PDF with highlighted reviewed pages and comments. */
@@ -214,22 +186,16 @@ export async function exportDocumentAsPDF(
   structureResult?: StructureResult | null,
 ) {
   const cleanName = previewData.documentName.replace(/\.[^/.]+$/, '');
-  const staging = document.createElement('div');
+  const staging = globalThis.document.createElement('div');
   staging.style.cssText = 'position:fixed;left:-10000px;top:0;width:794px;background:#fff;';
   staging.innerHTML = buildReviewHtml(previewData, analysisResult, structureResult);
-  document.body.appendChild(staging);
-
+  globalThis.document.body.appendChild(staging);
   try {
-    await document.fonts?.ready;
+    await globalThis.document.fonts?.ready;
     const pages = Array.from(staging.children) as HTMLElement[];
     const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
     for (let index = 0; index < pages.length; index += 1) {
-      const canvas = await html2canvas(pages[index], {
-        scale: 2,
-        backgroundColor: '#ffffff',
-        width: 794,
-        height: 1123,
-      });
+      const canvas = await html2canvas(pages[index], { scale: 2, backgroundColor: '#ffffff', width: 794, height: 1123 });
       if (index > 0) pdf.addPage();
       pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, 210, 297);
     }
@@ -239,21 +205,58 @@ export async function exportDocumentAsPDF(
   }
 }
 
-/** Generate a Word-compatible reviewed document with the same highlights and comments. */
-export function exportDocumentAsDocx(
+/** Generate a real OOXML DOCX file, not HTML renamed to .docx. */
+export async function exportDocumentAsDocx(
   previewData: DocumentPreviewData,
   analysisResult?: AnalysisResult | null,
   structureResult?: StructureResult | null,
 ) {
   const cleanName = previewData.documentName.replace(/\.[^/.]+$/, '');
-  const html = buildReviewHtml(previewData, analysisResult, structureResult)
-    .replace('<body>', `<body><header><h1>ThaiWrite AI — เอกสารฉบับตรวจแก้</h1><p>ชื่อเอกสาร: ${escapeHtml(previewData.documentName)}</p></header>`);
-  const blob = new Blob([html], { type: 'application/msword;charset=utf-8' });
+  const annotations = getAnnotations(previewData);
+  const fallbackNumber = { value: 0 };
+  const children: Array<Paragraph | Table> = [];
+  children.push(new Paragraph({ text: 'ThaiWrite AI — เอกสารฉบับตรวจแก้', heading: HeadingLevel.TITLE, alignment: AlignmentType.CENTER }));
+  children.push(new Paragraph({ text: `ชื่อเอกสาร: ${previewData.documentName}` }));
+  if (analysisResult) children.push(new Paragraph({ text: `คะแนนภาษา: ${analysisResult.score}/100 | จำนวนคำ: ${analysisResult.wordCount}` }));
+
+  previewData.pages.forEach((page, pageIndex) => {
+    children.push(new Paragraph({ children: [textRun(`หน้า ${page.pageNumber}`, { bold: true, color: '006241' })] }));
+    page.annotatedParagraphs.forEach((paragraph) => children.push(new Paragraph({ children: reviewedRuns(paragraph.text, paragraph.annotations || [], fallbackNumber) })));
+    if (pageIndex < previewData.pages.length - 1) children.push(new Paragraph({ children: [new PageBreak()] }));
+  });
+
+  children.push(new Paragraph({ children: [new PageBreak()] }));
+  children.push(new Paragraph({ text: 'บันทึกข้อคิดเห็นและรายการตรวจแก้', heading: HeadingLevel.HEADING_1 }));
+  chunkItems(annotations, 5).forEach((chunk, pageIndex) => {
+    chunk.forEach((annotation, index) => {
+      const number = markerNumber(annotation, pageIndex * 5 + index + 1);
+      children.push(new Paragraph({ children: [textRun(`[${number}] ${annotation.type === 'word' ? 'คำผิด / ไวยากรณ์' : 'โครงสร้างเอกสาร'}`, { bold: true, color: '006241' })] }));
+      children.push(new Table({ rows: [new TableRow({ children: [new TableCell({ children: [new Paragraph({ text: `ข้อความเดิม: ${annotation.originalText}` })] }), new TableCell({ children: [new Paragraph({ text: `คำแนะนำ: ${annotation.suggestedText || '-'}` })] })] })], borders: { top: { style: BorderStyle.SINGLE, size: 1, color: 'DCE3DD' }, bottom: { style: BorderStyle.SINGLE, size: 1, color: 'DCE3DD' }, left: { style: BorderStyle.SINGLE, size: 1, color: 'DCE3DD' }, right: { style: BorderStyle.SINGLE, size: 1, color: 'DCE3DD' }, insideHorizontal: { style: BorderStyle.SINGLE, size: 1, color: 'DCE3DD' }, insideVertical: { style: BorderStyle.SINGLE, size: 1, color: 'DCE3DD' } } }));
+      children.push(new Paragraph({ text: `คำอธิบาย: ${annotation.comment}` }));
+    });
+    if (pageIndex < Math.ceil(annotations.length / 5) - 1) children.push(new Paragraph({ children: [new PageBreak()] }));
+  });
+
+  if (structureResult) {
+    children.push(new Paragraph({ children: [new PageBreak()] }));
+    children.push(new Paragraph({ text: 'รายงานตรวจรูปแบบเอกสาร', heading: HeadingLevel.HEADING_1 }));
+    children.push(new Paragraph({ text: `${structureResult.templateName} | คะแนนโครงสร้าง ${structureResult.overallScore}/100` }));
+    children.push(new Paragraph({ text: `หัวข้อครบ ${structureResult.sectionsSummary.matched} | ขาด ${structureResult.sectionsSummary.missing} | สลับ ${structureResult.sectionsSummary.outOfOrder}` }));
+    children.push(new Paragraph({ text: 'รายการหัวข้อ', heading: HeadingLevel.HEADING_2 }));
+    structureResult.sectionChecks.forEach((section) => children.push(new Paragraph({ text: `[${statusLabel(section.status)}] ${section.title} — ${section.note}` })));
+    children.push(new Paragraph({ text: 'การจัดหน้าและรูปแบบ', heading: HeadingLevel.HEADING_2 }));
+    structureResult.formattingChecks.forEach((rule) => children.push(new Paragraph({ text: `[${statusLabel(rule.status)}] ${rule.ruleName} — ${rule.detected}` })));
+    children.push(new Paragraph({ text: 'ข้อเสนอแนะ', heading: HeadingLevel.HEADING_2 }));
+    structureResult.structureRecommendations.forEach((recommendation, index) => children.push(new Paragraph({ text: `${index + 1}. ${recommendation}` })));
+  }
+
+  const docxDocument = new Document({ sections: [{ properties: {}, children }] });
+  const blob = await Packer.toBlob(docxDocument);
   const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
+  const link = globalThis.document.createElement('a');
   link.href = url;
   link.download = `[ตรวจแล้ว]_${cleanName}.docx`;
-  document.body.appendChild(link);
+  globalThis.document.body.appendChild(link);
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
@@ -264,6 +267,6 @@ export async function exportBothFormats(
   analysisResult?: AnalysisResult | null,
   structureResult?: StructureResult | null,
 ) {
-  exportDocumentAsDocx(previewData, analysisResult, structureResult);
+  await exportDocumentAsDocx(previewData, analysisResult, structureResult);
   await exportDocumentAsPDF(previewData, analysisResult, structureResult);
 }
