@@ -70,16 +70,15 @@ src/
 
 ## 🚀 การติดตั้งและรันระบบ (Getting Started)
 
+ดูคู่มือการรันฉบับเต็มและวิธีแก้ปัญหาได้ที่ **[RUN.md](./RUN.md)**
+
 ```bash
-# ติดตั้ง dependencies
+# 1. ติดตั้ง Dependencies
 npm install
 
-# รันระบบในโหมด Development
+# 2. รัน Frontend (พอร์ต 3000)
 npm run dev
 
-# ตรวจสอบ TypeScript Lint
-npm run lint
-
-# Build สำหรับ Production
-npm run build
+# 3. (ทางเลือก) รัน Backend ด้วย Docker
+cd backend && docker-compose up --build
 ```

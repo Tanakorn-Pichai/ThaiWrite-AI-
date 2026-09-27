@@ -304,9 +304,11 @@ export const HomePage: React.FC = () => {
       {/* Conditional Layout for Document Fullscreen Review */}
       {pageView === 'document_fullscreen' && documentPreviewData ? (
         <DocumentComparePreview
-          documentData={documentPreviewData}
-          onClose={() => setPageView('split')}
-          selectedTemplateName={selectedTemplate.name}
+          previewData={documentPreviewData}
+          analysisResult={analysisResult}
+          structureResult={structureResult}
+          onBackToHome={() => setPageView('split')}
+          isFullScreen={true}
         />
       ) : (
         <>

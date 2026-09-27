@@ -47,7 +47,7 @@ export const DocumentComparePreview: React.FC<DocumentComparePreviewProps> = ({
 }) => {
   // View mode: 'split' (side-by-side), 'annotated' (reviewed only), 'original' (original only)
   const [viewMode, setViewMode] = useState<'annotated' | 'original' | 'split'>('split');
-  
+
   // Current active page: 1 to totalPages, and last page is the Comments Sheet (หน้าแยกของเอกสาร)
   const [currentPage, setCurrentPage] = useState<number>(1);
 
@@ -57,14 +57,22 @@ export const DocumentComparePreview: React.FC<DocumentComparePreviewProps> = ({
   // Export format selection
   const [exportFormat, setExportFormat] = useState<'pdf' | 'docx' | 'both'>('both');
 
+  if (!previewData || !previewData.pages) {
+    return (
+      <div className="p-8 text-center text-[#5A655E]">
+        <p className="text-sm font-semibold">กำลังโหลดข้อมูลพรีวิวเอกสาร...</p>
+      </div>
+    );
+  }
+
   const totalContentPages = previewData.pages.length;
   // Total pages including the separate comments sheet (หน้าแยกของเอกสาร)
   const totalTotalPages = totalContentPages + 1;
   const isCommentsSheet = currentPage === totalTotalPages;
 
   // Collect all annotations with their sequential reference numbers
-  const allAnnotations: DocumentAnnotation[] = previewData.pages.flatMap((page) =>
-    page.annotatedParagraphs.flatMap((p) => p.annotations)
+  const allAnnotations: DocumentAnnotation[] = (previewData.pages || []).flatMap((page) =>
+    (page.annotatedParagraphs || []).flatMap((p) => p.annotations || [])
   );
 
   const handleDownload = () => {

@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowRight, Lightbulb } from 'lucide-react';
+import { ArrowRight, Lightbulb, CheckCircle2 } from 'lucide-react';
 
 interface IssueRecommendationProps {
   originalText: string;
@@ -14,9 +14,28 @@ export const IssueRecommendation: React.FC<IssueRecommendationProps> = ({
   replacement,
   reason,
 }) => {
+  // If no specific issue detected
+  if (!detectedText) {
+    return (
+      <div className="p-4 sm:p-5 rounded-xl border border-[#006241]/30 bg-[#E2ECE5]/60">
+        <div className="flex items-center gap-2 mb-1.5">
+          <span className="p-1 rounded-md bg-[#006241] text-white">
+            <CheckCircle2 className="w-4 h-4" />
+          </span>
+          <h3 className="text-sm font-bold text-[#1E2923]">
+            ผลการตรวจสอบ: ไม่พบข้อผิดพลาด
+          </h3>
+        </div>
+        <p className="text-xs text-[#5A655E] leading-relaxed">
+          {reason || 'ไม่พบคำสะกดผิดหรือข้อผิดพลาดทางไวยากรณ์ในข้อความนี้ ข้อความถูกต้องตามมาตรฐานแล้ว'}
+        </p>
+      </div>
+    );
+  }
+
   // Highlight the detectedText within the originalText snippet
   const renderHighlightedSnippet = () => {
-    if (!detectedText || !originalText.includes(detectedText)) {
+    if (!originalText || !originalText.includes(detectedText)) {
       return <span>{originalText}</span>;
     }
 

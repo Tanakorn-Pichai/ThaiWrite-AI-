@@ -22,16 +22,22 @@ def get_templates(db: Session, skip: int = 0, limit: int = 100) -> List[models.D
 
 
 def get_template_by_id(db: Session, template_id: str) -> Optional[models.DocumentTemplate]:
-    """Get a template by its ID (UUID or string)."""
+    """Get a template by its ID (UUID or string code)."""
+    if not template_id:
+        return None
     try:
         uid = uuid.UUID(template_id)
-    except ValueError:
-        # Might be a non-UUID string ID like 'tmpl-thesis-5ch'
-        return db.query(models.DocumentTemplate).filter(
-            models.DocumentTemplate.code == template_id
-        ).first()
+        tmpl = db.query(models.DocumentTemplate).filter(models.DocumentTemplate.id == uid).first()
+        if tmpl:
+            return tmpl
+    except (ValueError, TypeError):
+        pass
+
+    # Match by code (case-insensitive or normalized)
+    normalized = template_id.upper().replace("-", "_")
     return db.query(models.DocumentTemplate).filter(
-        models.DocumentTemplate.id == uid
+        (models.DocumentTemplate.code == template_id) |
+        (models.DocumentTemplate.code == normalized)
     ).first()
 
 

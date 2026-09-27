@@ -69,6 +69,16 @@ export async function uploadCustomTemplate(file: File) {
  * Submit document analysis (Async Celery task)
  */
 export async function submitAnalysis(params: SubmitAnalysisParams): Promise<JobStatusResponse> {
+  // Quick health check — skip API call entirely if backend is offline
+  try {
+    const health = await fetch(`${API_BASE_URL.replace('/api/v1', '')}/health`, {
+      signal: AbortSignal.timeout(2000),
+    });
+    if (!health.ok) throw new Error('Backend offline');
+  } catch {
+    throw new Error('Backend is not running — using client fallback');
+  }
+
   const formData = new FormData();
   formData.append('template_id', params.templateId);
   formData.append('writing_style', params.writingStyle);
