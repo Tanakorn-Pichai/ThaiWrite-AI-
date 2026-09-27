@@ -13,7 +13,7 @@ export const InputTabs: React.FC<InputTabsProps> = ({
   mode,
   onSelectMode,
   disabledTextMode = false,
-  disabledReason = 'โหมดตรวจโครงสร้างหรือเทียบแม่แบบรองรับเฉพาะไฟล์เอกสาร',
+  disabledReason = 'โหมดตรวจโครงสร้างหรือเทียบรูปแบบเอกสารรองรับเฉพาะไฟล์เอกสาร',
 }) => {
   return (
     <div className="flex flex-col sm:flex-row sm:items-center gap-2">
@@ -56,7 +56,7 @@ export const InputTabs: React.FC<InputTabsProps> = ({
       {disabledTextMode && (
         <span className="text-[11px] text-[#006241] font-medium flex items-center gap-1">
           <span className="w-1.5 h-1.5 rounded-full bg-[#006241]" />
-          บังคับใช้ไฟล์เอกสาร (เมื่อเลือกตรวจโครงสร้าง/แม่แบบ)
+          บังคับใช้ไฟล์เอกสาร (เมื่อเลือกตรวจโครงสร้าง/รูปแบบเอกสาร)
         </span>
       )}
     </div>

@@ -15,6 +15,8 @@ interface StructurePanelProps {
   structureResult: StructureResult;
 }
 
+const displayTemplateName = (name: string) => name.replace(/^แม่แบบ\s*/, '');
+
 export const StructurePanel: React.FC<StructurePanelProps> = ({
   structureResult,
 }) => {
@@ -44,7 +46,7 @@ export const StructurePanel: React.FC<StructurePanelProps> = ({
   const getStatusBadge = (status: 'pass' | 'needs_revision' | 'fail') => {
     if (status === 'pass') {
       return {
-        label: 'ผ่านเกณฑ์แม่แบบ',
+        label: 'ผ่านเกณฑ์รูปแบบเอกสาร',
         bg: 'bg-[#E2ECE5] text-[#006241] border-[#006241]/30',
         icon: CheckCircle2,
       };
@@ -75,10 +77,10 @@ export const StructurePanel: React.FC<StructurePanelProps> = ({
             <LayoutTemplate className="w-5 h-5 text-[#006241] shrink-0" />
             <div>
               <span className="text-[10px] font-semibold text-[#5A655E] uppercase tracking-wider block">
-                เทียบกับแม่แบบ
+                เทียบกับรูปแบบเอกสาร
               </span>
               <h3 className="text-sm sm:text-base font-bold text-[#1E2923]">
-                {templateName}
+                {displayTemplateName(templateName)}
               </h3>
             </div>
           </div>
@@ -187,7 +189,7 @@ export const StructurePanel: React.FC<StructurePanelProps> = ({
           {/* Quick Filter buttons */}
           <div className="flex items-center justify-between text-xs pt-1">
             <span className="font-semibold text-[#1E2923]">
-              รายการหัวข้อตามแม่แบบ:
+              รายการหัวข้อตามรูปแบบเอกสาร:
             </span>
             <div className="flex items-center gap-1">
               <button
@@ -356,7 +358,7 @@ export const StructurePanel: React.FC<StructurePanelProps> = ({
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] pt-1">
                     <div className="p-2 rounded bg-[#F4F6F4] border border-[#DCE3DD]">
-                      <span className="text-[#5A655E] block">เกณฑ์แม่แบบ:</span>
+                      <span className="text-[#5A655E] block">เกณฑ์รูปแบบเอกสาร:</span>
                       <span className="font-medium text-[#1E2923]">{rule.expected}</span>
                     </div>
                     <div className="p-2 rounded bg-[#F4F6F4] border border-[#DCE3DD]">

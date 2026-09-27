@@ -152,6 +152,45 @@ export function generateAnalysis(
   let improved = trimmed;
   const detectedHighlights: any[] = [];
 
+  // ────────────────────────────────────────────────────────
+  // 1. Dynamic Check: Consecutive repeated words (คำซ้ำซ้อน)
+  // ────────────────────────────────────────────────────────
+  const repeatedRegex = /([฀-๿]{2,})(\s*\1){1,}/g;
+  const excludeRepetitions = new Set(["ต่าง", "เพื่อน", "เล็ก", "ใหญ่", "คล้าย", "ค่อย", "จริง", "แฟน", "น้อง", "พี่", "เด็ก"]);
+  let repMatch: RegExpExecArray | null;
+
+  while ((repMatch = repeatedRegex.exec(trimmed)) !== null) {
+    const fullMatch = repMatch[0];
+    const singleWord = repMatch[1];
+    if (!excludeRepetitions.has(singleWord)) {
+      detectedHighlights.push({
+        text: fullMatch,
+        type: 'grammar',
+        replacement: singleWord,
+        reason: `พบการใช้คำซ้ำซ้อน "${fullMatch}" ติดกันหลายครั้ง ควรใช้คำว่า "${singleWord}" เพียงครั้งเดียวเพื่อความถูกต้องของประโยค`,
+      });
+      improved = improved.replaceAll(fullMatch, singleWord);
+    }
+  }
+
+  // ────────────────────────────────────────────────────────
+  // 2. Dynamic Check: Incomplete sentence structure (โครงสร้างประโยคไม่สมบูรณ์)
+  // ────────────────────────────────────────────────────────
+  const lines = trimmed.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  for (const line of lines) {
+    if (/^(เนื่องจาก|เพราะว่า|ด้วยเหตุที่)/.test(line) && !/(จึง|ส่งผลให้|ทำให้|ดังนั้น)/.test(line)) {
+      detectedHighlights.push({
+        text: line,
+        type: 'grammar',
+        replacement: `${line} จึงไม่สามารถดำเนินการได้`,
+        reason: 'ประโยคขึ้นต้นด้วยคำเชื่อมสาเหตุ แต่ขาดภาคประธานหรือประโยคหลัก (Incomplete Sentence Structure)',
+      });
+    }
+  }
+
+  // ────────────────────────────────────────────────────────
+  // 3. Static Pattern Matching rules
+  // ────────────────────────────────────────────────────────
   for (const pat of patterns) {
     if (improved.includes(pat.target)) {
       detectedHighlights.push({

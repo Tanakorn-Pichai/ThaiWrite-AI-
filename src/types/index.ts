@@ -128,6 +128,8 @@ export interface HistoryItem {
   writingStyle?: WritingStyle;
   originalSnippet?: string;
   improvedSnippet?: string;
+  jobStatus?: string;
+  engineVersion?: string;
 }
 
 export interface GuideStep {
@@ -146,7 +148,7 @@ export interface ToastMessage {
 export interface CheckOptions {
   checkWords: boolean;      // ตรวจคำและไวยากรณ์
   checkStructure: boolean;  // ตรวจโครงสร้าง
-  compareTemplate: boolean; // เทียบแม่แบบ
+  compareTemplate: boolean; // เทียบรูปแบบเอกสาร
 }
 
 export interface DocumentAnnotation {

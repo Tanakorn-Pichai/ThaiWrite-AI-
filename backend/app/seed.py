@@ -6,9 +6,12 @@ so they're available from the first GET /api/v1/templates call.
 """
 
 import uuid
+import logging
 from .database import SessionLocal
 from . import models
 from .structure_checker import STANDARD_TEMPLATES
+
+logger = logging.getLogger("thaiwrite.seed")
 
 
 def seed_standard_templates():
@@ -46,9 +49,9 @@ def seed_standard_templates():
                 db.add(section)
 
         db.commit()
-        print(f"[seed] Seeded {len(STANDARD_TEMPLATES)} standard templates.")
-    except Exception as e:
+        logger.info("seeded standard templates", extra={"template_count": len(STANDARD_TEMPLATES)})
+    except Exception:
         db.rollback()
-        print(f"[seed] Error seeding templates: {e}")
+        logger.exception("failed to seed standard templates")
     finally:
         db.close()

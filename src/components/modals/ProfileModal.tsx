@@ -5,12 +5,16 @@ interface ProfileModalProps {
   isOpen: boolean;
   onClose: () => void;
   totalChecks: number;
+  averageScore?: number;
+  engineVersion?: string;
 }
 
 export const ProfileModal: React.FC<ProfileModalProps> = ({
   isOpen,
   onClose,
   totalChecks,
+  averageScore,
+  engineVersion,
 }) => {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -86,7 +90,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                 คะแนนเฉลี่ย
               </span>
               <p className="text-xl font-bold font-mono text-[#006241] tabular-nums">
-                89.5 / 100
+                {averageScore == null ? '—' : `${averageScore.toFixed(2)} / 100`}
               </p>
             </div>
           </div>
@@ -100,7 +104,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
             </div>
             <div className="flex items-center justify-between">
               <span className="font-semibold text-[#1E2923]">โมเดลตรวจคำ:</span>
-              <span className="font-mono">Thai NLP v2.4</span>
+              <span className="font-mono">{engineVersion || '—'}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="font-semibold text-[#1E2923]">เกณฑ์อ้างอิง:</span>

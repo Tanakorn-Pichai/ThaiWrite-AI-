@@ -25,6 +25,7 @@ import {
 
 interface ResultPanelProps {
   mode: InputMode;
+  engineVersion?: string;
   checkOptions: CheckOptions;
   result: AnalysisResult | null;
   structureResult: StructureResult | null;
@@ -38,6 +39,7 @@ interface ResultPanelProps {
 
 export const ResultPanel: React.FC<ResultPanelProps> = ({
   mode,
+  engineVersion,
   checkOptions,
   result,
   structureResult,
@@ -77,26 +79,33 @@ export const ResultPanel: React.FC<ResultPanelProps> = ({
 
             {/* Quick Score Badges */}
             {result && !isLoading && (
-              <div className="flex items-center gap-2">
-                <div className="px-3 py-1.5 rounded-xl border border-[#DCE3DD] bg-[#E2ECE5]/50 text-xs font-mono">
-                  <span className="text-[10px] block font-sans text-[#006241] font-semibold">
-                    คะแนนภาษา
-                  </span>
-                  <span className="text-sm font-bold text-[#006241]">
-                    {result.score}/100
-                  </span>
-                </div>
-
-                {isFileMode && structureResult && checkOptions.compareTemplate && (
-                  <div className="px-3 py-1.5 rounded-xl border border-[#DCE3DD] bg-[#E2ECE5]/50 text-xs font-mono">
-                    <span className="text-[10px] block font-sans text-[#006241] font-semibold">
-                      คะแนนโครงสร้าง
-                    </span>
-                    <span className="text-sm font-bold text-[#006241]">
-                      {structureResult.overallScore}/100
-                    </span>
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                {engineVersion && (
+                  <div className="px-2.5 py-1.5 rounded-xl border border-[#006241]/20 bg-[#E2ECE5] text-[10px] text-[#006241] font-semibold">
+                    FastAPI + PyThaiNLP · {engineVersion}
                   </div>
                 )}
+                <div className="flex items-center gap-2">
+                  <div className="px-3 py-1.5 rounded-xl border border-[#DCE3DD] bg-[#E2ECE5]/50 text-xs font-mono">
+                    <span className="text-[10px] block font-sans text-[#006241] font-semibold">
+                      คะแนนภาษา
+                    </span>
+                    <span className="text-sm font-bold text-[#006241]">
+                      {result.score}/100
+                    </span>
+                  </div>
+
+                  {isFileMode && structureResult && checkOptions.compareTemplate && (
+                    <div className="px-3 py-1.5 rounded-xl border border-[#DCE3DD] bg-[#E2ECE5]/50 text-xs font-mono">
+                      <span className="text-[10px] block font-sans text-[#006241] font-semibold">
+                        คะแนนโครงสร้าง
+                      </span>
+                      <span className="text-sm font-bold text-[#006241]">
+                        {structureResult.overallScore}/100
+                      </span>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -127,7 +136,7 @@ export const ResultPanel: React.FC<ResultPanelProps> = ({
                 }`}
               >
                 <LayoutTemplate className="w-4 h-4 text-[#006241]" />
-                <span>รายงานเทียบแม่แบบ</span>
+                <span>รายงานตรวจรูปแบบเอกสาร</span>
               </button>
             </div>
           )}
@@ -197,6 +206,8 @@ export const ResultPanel: React.FC<ResultPanelProps> = ({
                   detectedText={result.detectedText}
                   replacement={result.replacement}
                   reason={result.reason}
+                  highlights={result.highlights}
+                  activeFilter={activeCategoryFilter}
                 />
                 <ImprovedText
                   originalText={result.originalText}

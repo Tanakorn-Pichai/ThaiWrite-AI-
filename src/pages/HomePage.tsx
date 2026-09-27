@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Header } from '../components/layout/Header';
 import { Hero } from '../components/layout/Hero';
 import { Footer } from '../components/layout/Footer';
@@ -20,16 +20,78 @@ import {
   ToastMessage,
   CheckOptions,
   DocumentPreviewData,
+  DocumentAnnotation,
 } from '../types';
-import {
-  SAMPLE_TEXT,
-  DEFAULT_MOCK_ANALYSIS,
-  generateAnalysis,
-} from '../data/mockAnalysis';
-import { STANDARD_TEMPLATES, evaluateStructure, buildCustomDocTemplate } from '../data/mockTemplates';
-import { INITIAL_MOCK_HISTORY } from '../data/mockHistory';
-import { generateDocumentPreview } from '../data/mockDocumentPreview';
-import { submitAnalysis } from '../services/api';
+import { fetchTemplates, submitAnalysis, pollAnalysisJob, fetchHistory, fetchProfileStats } from '../services/api';
+
+function buildApiDocumentPreview(
+  documentName: string,
+  content: string,
+  result: AnalysisResult,
+  structure: StructureResult,
+): DocumentPreviewData | null {
+  const cleanContent = content.trim();
+  if (!cleanContent) return null;
+
+  const highlights = result.highlights || [];
+  const annotations: DocumentAnnotation[] = highlights.map((issue, index) => ({
+    id: `api-${index + 1}`,
+    number: index + 1,
+    type: 'word',
+    originalText: issue.text,
+    suggestedText: issue.replacement,
+    comment: issue.reason,
+    category: issue.type,
+    severity: issue.type === 'spelling' ? 'error' : 'warning',
+  }));
+
+  const paragraphs = cleanContent.split(/\r?\n+/).filter(Boolean);
+  const pageParagraphs: string[][] = [];
+  const maxPageCharacters = 1800;
+  let currentPage: string[] = [];
+  let currentLength = 0;
+
+  paragraphs.forEach((paragraph) => {
+    if (currentPage.length > 0 && currentLength + paragraph.length > maxPageCharacters) {
+      pageParagraphs.push(currentPage);
+      currentPage = [];
+      currentLength = 0;
+    }
+    currentPage.push(paragraph);
+    currentLength += paragraph.length;
+  });
+  if (currentPage.length > 0) pageParagraphs.push(currentPage);
+
+  let annotationOffset = 0;
+  const pages = pageParagraphs.map((page, pageIndex) => {
+    const pageText = page.join('\n');
+    const pageAnnotations = annotations.filter((annotation) => {
+      const foundAt = pageText.indexOf(annotation.originalText);
+      if (foundAt === -1) return false;
+      return true;
+    });
+    pageAnnotations.forEach((annotation) => {
+      annotation.number = annotation.number || ++annotationOffset;
+    });
+    return {
+      pageNumber: pageIndex + 1,
+      originalText: pageText,
+      annotatedParagraphs: page.map((paragraph, paragraphIndex) => ({
+        id: `api-page-${pageIndex + 1}-paragraph-${paragraphIndex + 1}`,
+        text: paragraph,
+        annotations: pageAnnotations.filter((annotation) => paragraph.includes(annotation.originalText)),
+      })),
+    };
+  });
+
+  return {
+    documentName,
+    totalWordErrors: annotations.length,
+    totalStructureErrors: structure.sectionsSummary.missing + structure.sectionsSummary.outOfOrder,
+    pages,
+  };
+}
+import { appLogger } from '../utils/logger';
 
 export const HomePage: React.FC = () => {
   // Page view mode: standard split layout or dedicated full-width document review
@@ -43,28 +105,23 @@ export const HomePage: React.FC = () => {
   });
 
   // 2. Main Input & Template states (Requirement 2: Mode & Conditional template)
-  const [selectedTemplate, setSelectedTemplate] = useState<DocTemplate>(
-    STANDARD_TEMPLATES[0]
-  );
+  const [templates, setTemplates] = useState<DocTemplate[]>([]);
+  const [selectedTemplate, setSelectedTemplate] = useState<DocTemplate | null>(null);
+  const [templatesLoading, setTemplatesLoading] = useState(true);
   const [customTemplateFile, setCustomTemplateFile] = useState<UploadedFile | null>(
     null
   );
   const [inputMode, setInputMode] = useState<InputMode>('text');
-  const [text, setText] = useState<string>(SAMPLE_TEXT);
+  const [text, setText] = useState<string>('');
   const [uploadedFile, setUploadedFile] = useState<UploadedFile | null>(null);
   const [writingStyle, setWritingStyle] = useState<WritingStyle>('เชิงวิชาการ');
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
   // 3. Results states (Requirement 3: Standard text result, Requirement 4 & 5: Document preview & export)
-  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(
-    DEFAULT_MOCK_ANALYSIS
-  );
-  const [structureResult, setStructureResult] = useState<StructureResult | null>(
-    () => evaluateStructure(SAMPLE_TEXT, undefined, STANDARD_TEMPLATES[0])
-  );
-  const [documentPreviewData, setDocumentPreviewData] = useState<DocumentPreviewData | null>(
-    () => generateDocumentPreview('รายงานโครงงาน_ปัญญาประดิษฐ์.docx', STANDARD_TEMPLATES[0].name, SAMPLE_TEXT)
-  );
+  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
+  const [engineVersion, setEngineVersion] = useState<string | null>(null);
+  const [structureResult, setStructureResult] = useState<StructureResult | null>(null);
+  const [documentPreviewData, setDocumentPreviewData] = useState<DocumentPreviewData | null>(null);
 
   // Modals state
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -72,10 +129,49 @@ export const HomePage: React.FC = () => {
   const [profileOpen, setProfileOpen] = useState(false);
 
   // History state
-  const [history, setHistory] = useState<HistoryItem[]>(INITIAL_MOCK_HISTORY);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [profileStats, setProfileStats] = useState<Awaited<ReturnType<typeof fetchProfileStats>> | null>(null);
 
   // Toast notifications
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const [backendError, setBackendError] = useState<string | null>(null);
+  // Temporary development identity; production should replace this with the authenticated subject.
+  const userId = '00000000-0000-0000-0000-000000000001';
+
+  useEffect(() => {
+    let active = true;
+
+    // Templates are required to use the editor; history and profile statistics
+    // are auxiliary and should not prevent the page from loading.
+    fetchTemplates()
+      .then((remoteTemplates) => {
+        if (!active) return;
+        setTemplates(remoteTemplates);
+        if (remoteTemplates.length > 0) setSelectedTemplate(remoteTemplates[0]);
+        setBackendError(null);
+      })
+      .catch((error) => {
+        if (!active) return;
+        appLogger.error('templates_load_failed', { message: error instanceof Error ? error.message : 'unknown' });
+        const detail = error instanceof Error ? error.message : 'ไม่ทราบสาเหตุ';
+        setBackendError(`ไม่สามารถโหลดข้อมูลจาก Backend ได้ (${detail}) กรุณาตรวจสอบการเชื่อมต่อแล้วลองใหม่`);
+      })
+      .finally(() => active && setTemplatesLoading(false));
+
+    fetchHistory(userId)
+      .then((remoteHistory) => active && setHistory(remoteHistory))
+      .catch((error) => {
+        if (active) appLogger.warn('history_load_failed', { message: error instanceof Error ? error.message : 'unknown' });
+      });
+
+    fetchProfileStats(userId)
+      .then((remoteProfileStats) => active && setProfileStats(remoteProfileStats))
+      .catch((error) => {
+        if (active) appLogger.warn('profile_stats_load_failed', { message: error instanceof Error ? error.message : 'unknown' });
+      });
+
+    return () => { active = false; };
+  }, []);
 
   // Textarea ref for refocusing
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -100,8 +196,7 @@ export const HomePage: React.FC = () => {
 
   const handleUseSampleText = () => {
     setInputMode('text');
-    setText(SAMPLE_TEXT);
-    showToast('ใส่ข้อความตัวอย่างเรียบร้อยแล้ว', 'success');
+    showToast('กรุณาวางข้อความจริงของคุณเพื่อให้ Backend ตรวจสอบ', 'info');
   };
 
   // File actions
@@ -127,21 +222,28 @@ export const HomePage: React.FC = () => {
   // Custom Template Handlers
   const handleCustomTemplateUpload = (file: UploadedFile) => {
     setCustomTemplateFile(file);
-    showToast(`ใช้ไฟล์แม่แบบเฉพาะ: ${file.name}`, 'success');
+    showToast(`ใช้รูปแบบเอกสารเฉพาะ: ${file.name}`, 'success');
   };
 
   const handleRemoveCustomTemplate = () => {
     setCustomTemplateFile(null);
-    setSelectedTemplate(STANDARD_TEMPLATES[0]);
-    showToast('เปลี่ยนกลับมาใช้แม่แบบมาตรฐาน', 'info');
+    setSelectedTemplate(templates[0] || null);
+    showToast('เปลี่ยนกลับมาใช้รูปแบบเอกสารมาตรฐาน', 'info');
   };
 
   // Active effective template (custom template if uploaded, otherwise selected standard template)
-  const activeTemplate: DocTemplate = customTemplateFile
-    ? buildCustomDocTemplate(customTemplateFile)
-    : selectedTemplate;
+  const activeTemplate = selectedTemplate;
 
-  // Helper to record history
+  if (!activeTemplate && !templatesLoading) {
+    return <div className="min-h-screen p-8 text-center text-rose-700">ไม่พบรูปแบบเอกสารจาก Backend</div>;
+  }
+
+  if (!activeTemplate) {
+    return <div className="min-h-screen p-8 text-center text-[#5A655E]">กำลังโหลดรูปแบบเอกสาร...</div>;
+  }
+
+  // Backend is authoritative for history.
+  /*
   const recordHistory = (docName: string, langRes: AnalysisResult, structRes: StructureResult | null) => {
     const now = new Date();
     const thaiMonths = [
@@ -168,6 +270,7 @@ export const HomePage: React.FC = () => {
 
     setHistory((prev) => [newHistoryItem, ...prev]);
   };
+  */
 
   // Trigger Analysis
   const handleAnalyze = async () => {
@@ -187,28 +290,48 @@ export const HomePage: React.FC = () => {
 
     try {
       // 1. Attempt Real Backend API Call (FastAPI + PyThaiNLP)
-      const apiResponse = await submitAnalysis({
-        templateId: activeTemplate.id,
+      let apiResponse = await submitAnalysis({
+        templateId: activeTemplate!.code,
         writingStyle: writingStyle,
         inputMode: inputMode,
+        userId,
         text: inputMode === 'text' ? text : undefined,
         file: inputMode === 'file' && uploadedFile?.rawFile ? uploadedFile.rawFile : undefined,
       });
 
+      if (apiResponse.status === 'pending' || apiResponse.status === 'processing') {
+        const result = await pollAnalysisJob(apiResponse.jobId, (step) => {
+          appLogger.info('analysis_progress', { jobId: apiResponse.jobId, step });
+        });
+        apiResponse = { jobId: result.jobId, status: 'completed', result };
+      }
+
       if (apiResponse.status === 'completed' && apiResponse.result) {
         const { languageResult, structureResult } = apiResponse.result;
         setAnalysisResult(languageResult);
+        setEngineVersion(apiResponse.engineVersion || null);
+        appLogger.info('real_nlp_analysis_completed', {
+          engineVersion: apiResponse.engineVersion || 'unknown',
+          jobId: apiResponse.jobId,
+          issueCount: languageResult.issueCount,
+        });
         setStructureResult(structureResult);
+        setBackendError(null);
 
         const docName = apiResponse.result.documentName || (inputMode === 'file' && uploadedFile ? uploadedFile.name : 'ข้อความทั่วไป.txt');
         const contentForPreview = inputMode === 'file' && uploadedFile?.content ? uploadedFile.content : text;
-        setDocumentPreviewData(generateDocumentPreview(docName, activeTemplate.name, contentForPreview));
+        setDocumentPreviewData(buildApiDocumentPreview(docName, contentForPreview, languageResult, structureResult));
 
-        recordHistory(docName, languageResult, structureResult);
+        Promise.all([fetchHistory(userId), fetchProfileStats(userId)]).then(([nextHistory, nextStats]) => {
+          setHistory(nextHistory);
+          setProfileStats(nextStats);
+        }).catch((error) => {
+          appLogger.warn('history_refresh_failed', { message: error instanceof Error ? error.message : 'unknown' });
+        });
 
         if (inputMode === 'file') {
           setPageView('document_fullscreen');
-          showToast(`[FastAPI + PyThaiNLP] ตรวจเทียบกับ ${activeTemplate.name} สำเร็จ`, 'success');
+          showToast(`[FastAPI + PyThaiNLP] ตรวจรูปแบบเอกสาร ${activeTemplate.name} สำเร็จ`, 'success');
         } else {
           showToast(`[FastAPI + PyThaiNLP] ตรวจวิเคราะห์ข้อความ (${languageResult.score}/100) สำเร็จ`, 'success');
         }
@@ -216,10 +339,16 @@ export const HomePage: React.FC = () => {
         return;
       }
     } catch (err) {
-      console.warn('Backend API connection fallback to client engine:', err);
+      const message = err instanceof Error ? err.message : 'การตรวจวิเคราะห์ล้มเหลว';
+      appLogger.error('analysis_failed', { message });
+      setBackendError(message);
+      showToast(message, 'error');
+      setIsLoading(false);
+      return;
     }
 
-    // 2. Client-side fallback if backend API is offline
+    /* Client fallback intentionally disabled: backend is the source of truth. */
+    /*
     setTimeout(() => {
       let langResult: AnalysisResult;
       let structResult: StructureResult | null = null;
@@ -254,11 +383,12 @@ export const HomePage: React.FC = () => {
       setIsLoading(false);
 
       if (inputMode === 'file') {
-        showToast(`ตรวจเทียบแม่แบบกับ "${activeTemplate.name}" เรียบร้อยแล้ว`, 'success');
+        showToast(`ตรวจเทียบรูปแบบเอกสารกับ "${activeTemplate.name}" เรียบร้อยแล้ว`, 'success');
       } else {
         showToast(`ตรวจวิเคราะห์ข้อความ (${langResult.score}/100) สำเร็จ`, 'success');
       }
     }, 400);
+    */
   };
 
   // Apply Improved Text back to editor
@@ -284,20 +414,7 @@ export const HomePage: React.FC = () => {
     if (item.originalSnippet) {
       setInputMode('text');
       setText(item.originalSnippet);
-
-      const restoredAnalysis = generateAnalysis(
-        item.originalSnippet,
-        item.writingStyle || 'เชิงวิชาการ'
-      );
-      setAnalysisResult(restoredAnalysis);
-
-      if (checkOptions.checkStructure) {
-        setStructureResult(
-          evaluateStructure(item.originalSnippet, undefined, selectedTemplate)
-        );
-      }
-
-      showToast(`โหลดประวัติ "${item.documentName}" สำเร็จ`, 'info');
+      showToast(`โหลดข้อความจากประวัติ "${item.documentName}" แล้ว กดตรวจเพื่อรับผลล่าสุดจาก Backend`, 'info');
     }
   };
 
@@ -305,6 +422,13 @@ export const HomePage: React.FC = () => {
     <div className="min-h-screen bg-[#F4F6F4] flex flex-col font-['Prompt',sans-serif]">
       {/* Toast container */}
       <Toast toasts={toasts} onDismiss={dismissToast} />
+      {backendError && (
+        <div className="mx-auto mt-4 w-full max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800" role="alert">
+            {backendError}
+          </div>
+        </div>
+      )}
 
       {/* Conditional Layout for Document Fullscreen Review */}
       {pageView === 'document_fullscreen' && documentPreviewData ? (
@@ -325,13 +449,7 @@ export const HomePage: React.FC = () => {
           />
 
           {/* Hero Section */}
-          <Hero
-            onStartWriting={() => {
-              if (textareaRef.current) {
-                textareaRef.current.focus();
-              }
-            }}
-          />
+          <Hero />
 
           {/* Main Content Workspace */}
           <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
@@ -353,7 +471,9 @@ export const HomePage: React.FC = () => {
                   onFileError={handleFileError}
                   style={writingStyle}
                   onStyleChange={setWritingStyle}
-                  selectedTemplate={selectedTemplate}
+                  selectedTemplate={activeTemplate}
+                  templates={templates}
+                  templatesLoading={templatesLoading}
                   onSelectTemplate={setSelectedTemplate}
                   customTemplateFile={customTemplateFile}
                   onCustomTemplateUpload={handleCustomTemplateUpload}
@@ -368,6 +488,7 @@ export const HomePage: React.FC = () => {
               <div className="lg:col-span-5 space-y-6">
                 <ResultPanel
                   mode={inputMode}
+                  engineVersion={engineVersion || undefined}
                   checkOptions={checkOptions}
                   result={analysisResult}
                   structureResult={structureResult}
@@ -399,9 +520,19 @@ export const HomePage: React.FC = () => {
         onClose={() => setHistoryOpen(false)}
         history={history}
         onSelectHistoryItem={handleSelectHistoryItem}
+        onClearHistory={() => {
+          setHistory([]);
+          showToast('ล้างประวัติการตรวจเรียบร้อยแล้ว', 'info');
+        }}
       />
       <GuideModal isOpen={guideOpen} onClose={() => setGuideOpen(false)} />
-      <ProfileModal isOpen={profileOpen} onClose={() => setProfileOpen(false)} />
+      <ProfileModal
+        isOpen={profileOpen}
+        onClose={() => setProfileOpen(false)}
+        totalChecks={profileStats?.totalChecks ?? 0}
+        averageScore={profileStats?.averageScore}
+        engineVersion={profileStats?.engineVersion}
+      />
     </div>
   );
 };

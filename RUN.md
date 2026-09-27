@@ -15,7 +15,9 @@ npm run dev
 ```
 
 เปิด browser ไปที่: **http://localhost:3000**  
-*(หมายเหตุ: หากยังไม่ได้เปิด Backend ระบบจะใช้โหมด Client Fallback / Mock Data ให้อัตโนมัติ สามารถทดสอบตรวจเอกสารได้ทันที)*
+หากทดสอบจากเครื่องอื่นในเครือข่ายเดียวกัน ให้เปิดผ่าน IP ของเครื่องนี้ เช่น `http://192.168.1.36:3000` และต้องเปิด Backend ให้รับการเชื่อมต่อจากเครือข่ายด้วย
+
+> Frontend ใช้ Backend จริงเท่านั้น หาก Backend ปิดอยู่ ระบบจะแสดงข้อผิดพลาดและจะไม่สร้างผลวิเคราะห์จำลอง
 
 ---
 
@@ -49,8 +51,8 @@ source venv/bin/activate
 # ติดตั้ง dependencies
 pip install -r requirements.txt
 
-# สตาร์ท FastAPI Server
-python -m uvicorn app.main:app --reload --port 8000
+# สตาร์ท FastAPI Server (รันจากโฟลเดอร์ backend)
+python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 API & Swagger Docs: **http://localhost:8000/docs**

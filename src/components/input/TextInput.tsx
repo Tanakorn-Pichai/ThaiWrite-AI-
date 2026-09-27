@@ -1,12 +1,11 @@
 import React, { forwardRef } from 'react';
 import { Trash2, Zap } from 'lucide-react';
-import { SAMPLE_TEXT } from '../../data/mockAnalysis';
 
 interface TextInputProps {
   value: string;
   onChange: (val: string) => void;
   onClear: () => void;
-  onUseSample: () => void;
+  onUseSample?: () => void;
   maxLength?: number;
 }
 
@@ -56,7 +55,7 @@ export const TextInput = forwardRef<HTMLTextAreaElement, TextInputProps>(
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-[#006241] bg-[#E2ECE5] hover:bg-[#d5e4d9] transition-colors cursor-pointer"
             >
               <Zap className="w-3.5 h-3.5 text-[#006241]" />
-              <span>ข้อความตัวอย่าง</span>
+              <span>ข้อความตัวอย่าง (ไม่ส่งผลตรวจจนกดตรวจ)</span>
             </button>
           </div>
 

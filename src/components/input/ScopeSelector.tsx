@@ -39,7 +39,7 @@ export const ScopeSelector: React.FC<ScopeSelectorProps> = ({
     },
     {
       key: 'compareTemplate' as const,
-      label: 'เทียบแม่แบบ',
+      label: 'เทียบรูปแบบเอกสาร',
       desc: 'เทียบเกณฑ์ (เฉพาะไฟล์เอกสาร)',
       icon: Layers,
       checked: options.compareTemplate,

@@ -13,6 +13,8 @@ import os
 import uuid
 import json
 import asyncio
+import logging
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -24,7 +26,10 @@ from .nlp_engine import analyze_thai_text
 from .docx_parser import parse_docx, parse_pdf, parse_text
 from .structure_checker import STANDARD_TEMPLATES, get_template_by_id as get_tmpl_by_id, evaluate_structure
 
+ENGINE_VERSION = "thaiwrite-nlp/1.0"
+
 api_router = APIRouter()
+logger = logging.getLogger("thaiwrite.router")
 
 MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_SIZE_MB", "10"))
 ALLOWED_EXTENSIONS = {".docx", ".pdf", ".txt"}
@@ -48,7 +53,8 @@ def _validate_file(file: UploadFile):
 def _template_orm_to_schema(t: models.DocumentTemplate) -> schemas.DocTemplateOut:
     rules = t.formatting_rules or {}
     return schemas.DocTemplateOut(
-        id=str(t.id),
+        # Public IDs are stable template codes; database UUIDs remain internal.
+        id=t.code,
         code=t.code,
         name=t.name,
         category=t.category,
@@ -63,6 +69,16 @@ def _template_orm_to_schema(t: models.DocumentTemplate) -> schemas.DocTemplateOu
             lineSpacing=rules.get("lineSpacing", "1.0"),
             pageNumbering=rules.get("pageNumbering", "มุมบนขวา"),
         ),
+        requiredSections=[
+            schemas.TemplateSectionOut(
+                id=str(section.id),
+                title=section.title,
+                level=section.section_level,
+                required=section.is_required,
+                description=section.description,
+            )
+            for section in (t.sections or [])
+        ],
         requiredSectionsCount=len(t.sections) if hasattr(t, "sections") and t.sections else 0,
     )
 
@@ -85,6 +101,16 @@ def _template_dict_to_schema(tmpl: dict) -> schemas.DocTemplateOut:
             lineSpacing=rules.get("lineSpacing", "1.0"),
             pageNumbering=rules.get("pageNumbering", "มุมบนขวา"),
         ),
+        requiredSections=[
+            schemas.TemplateSectionOut(
+                id=section["id"],
+                title=section["title"],
+                level=section["level"],
+                required=section.get("required", True),
+                description=section.get("description"),
+            )
+            for section in tmpl.get("requiredSections", [])
+        ],
         requiredSectionsCount=len(tmpl.get("requiredSections", [])),
     )
 
@@ -96,8 +122,8 @@ async def _try_upload_s3(file_bytes: bytes, filename: str, content_type: str) ->
     try:
         from .storage import upload_file
         return await upload_file(file_bytes, filename, content_type)
-    except Exception as e:
-        print(f"[S3 upload skipped] {e}")
+    except Exception:
+        logger.exception("S3 upload failed; continuing without object storage")
         return None
 
 
@@ -125,7 +151,18 @@ def _run_analysis_sync(
     # 3. Template compliance
     template = get_tmpl_by_id(template_id)
     if not template:
-        template = STANDARD_TEMPLATES[0]
+        db_template = crud.get_template_by_id(db, template_id)
+        if not db_template or not db_template.is_custom:
+            raise HTTPException(status_code=404, detail=f"ไม่พบแม่แบบ: {template_id}")
+        template = {
+            "id": db_template.code,
+            "name": db_template.name,
+            "formattingRules": db_template.formatting_rules or {},
+            "requiredSections": [
+                {"id": str(section.id), "title": section.title, "level": section.section_level, "required": section.is_required}
+                for section in db_template.sections
+            ],
+        }
 
     struct_result = evaluate_structure(
         content=parsed.get("fullText", content),
@@ -138,6 +175,9 @@ def _run_analysis_sync(
     # 4. Persist to DB
     job.language_score = lang_result["score"]
     job.structure_score = struct_result["overallScore"]
+    job.engine_version = ENGINE_VERSION
+    job.started_at = job.started_at or datetime.now(timezone.utc)
+    job.finished_at = datetime.now(timezone.utc)
     job.word_count = lang_result["wordCount"]
     job.sentence_count = lang_result["sentenceCount"]
     job.issue_count = lang_result["issueCount"]
@@ -145,6 +185,7 @@ def _run_analysis_sync(
     job.overall_status = "completed"
     # Store full result JSON in original_text field temporarily (max 50k)
     job.original_text = job.original_text  # keep original
+    job.result_json = {"languageResult": lang_result, "structureResult": struct_result}
 
     # Persist language issues
     for hl in lang_result.get("highlights", []):
@@ -255,10 +296,27 @@ async def upload_custom_template(file: UploadFile = File(...), db: Session = Dep
         schemas.TemplateSectionOut(id=f"custom-{i}", title=h["title"], level=h["level"], required=True)
         for i, h in enumerate(parsed.get("detectedHeadings", []))
     ]
+    for index, section in enumerate(detected_sections, start=1):
+        db.add(models.TemplateSection(
+            template_id=template.id,
+            title=section.title,
+            section_level=section.level,
+            expected_order=index,
+            is_required=section.required,
+            description=section.description,
+        ))
+    db.commit()
 
     return schemas.CustomTemplateUploadResponse(
-        id=str(template.id), name=template.name, code=template.code,
-        category="custom", isCustom=True, detectedSections=detected_sections,
+        id=template.code, name=template.name, code=template.code,
+        category="custom", isCustom=True,
+        description=template.description,
+        formattingRules=schemas.FormattingRules(
+            fontFamily="ไม่ทราบจากไฟล์", fontSizeHeading="ไม่ทราบจากไฟล์",
+            fontSizeBody="ไม่ทราบจากไฟล์", margins="ไม่ทราบจากไฟล์",
+            lineSpacing="ไม่ทราบจากไฟล์", pageNumbering="ไม่ทราบจากไฟล์",
+        ),
+        requiredSections=detected_sections, detectedSections=detected_sections,
     )
 
 
@@ -272,6 +330,7 @@ async def submit_analysis(
     writing_style: str = Form(...),
     input_mode: str = Form(...),
     text: Optional[str] = Form(None),
+    user_id: Optional[str] = Form(None),
     file: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db),
 ):
@@ -322,11 +381,14 @@ async def submit_analysis(
     else:
         raise HTTPException(status_code=422, detail="input_mode ต้องเป็น 'text' หรือ 'file'")
 
+    if not get_tmpl_by_id(template_id) and not crud.get_template_by_id(db, template_id):
+        raise HTTPException(status_code=404, detail=f"ไม่พบแม่แบบ: {template_id}")
+
     # Create DB job
     job = crud.create_analysis_job(
         db, template_id=template_id, writing_style=writing_style,
         document_name=document_name, original_text=content[:5000],
-        file_type=file_type, file_size_bytes=file_size,
+        file_type=file_type, file_size_bytes=file_size, user_id=user_id,
     )
     job_id = str(job.id)
 
@@ -336,6 +398,7 @@ async def submit_analysis(
         return schemas.JobStatusResponse(
             jobId=job_id,
             status="completed",
+            engineVersion=ENGINE_VERSION,
             result=_build_analysis_response(job_id, document_name, lang, struct),
         )
 
@@ -372,16 +435,38 @@ async def get_analysis_result(job_id: str, db: Session = Depends(get_db)):
             state = AsyncResult(job_id).state
             step = AsyncResult(job_id).info.get("step") if isinstance(AsyncResult(job_id).info, dict) else None
             return schemas.JobStatusResponse(jobId=job_id, status="processing" if state == "PROCESSING" else "pending", step=step)
-        return schemas.JobStatusResponse(jobId=job_id, status=db_job.overall_status)
+        return schemas.JobStatusResponse(
+            jobId=job_id,
+            status=db_job.overall_status,
+            error=db_job.error_message,
+            engineVersion=db_job.engine_version or ENGINE_VERSION,
+        )
 
-    # Build full result from DB records
+    # Return the exact persisted result from the completed analysis.
+    if db_job.result_json:
+        persisted = _build_analysis_response(
+            job_id,
+            db_job.document_name,
+            db_job.result_json.get("languageResult", {}),
+            db_job.result_json.get("structureResult", {}),
+        )
+        return schemas.JobStatusResponse(
+            jobId=job_id,
+            status="completed",
+            engineVersion=db_job.engine_version or ENGINE_VERSION,
+            result=persisted,
+        )
+
+    # Legacy jobs without a snapshot are reconstructed for backward compatibility.
     lang_issues = crud.get_job_language_issues(db, job_id)
     struct_checks = crud.get_job_structure_results(db, job_id)
 
     # Resolve template name
     template_name = "ไม่ระบุแม่แบบ"
     template_id_str = str(db_job.template_id) if db_job.template_id else ""
-    tmpl = get_tmpl_by_id(template_id_str)
+    db_template = db.query(models.DocumentTemplate).filter(models.DocumentTemplate.id == db_job.template_id).first()
+    public_template_id = db_template.code if db_template else template_id_str
+    tmpl = get_tmpl_by_id(public_template_id)
     if tmpl:
         template_name = tmpl["name"]
 
@@ -435,15 +520,21 @@ async def get_analysis_result(job_id: str, db: Session = Depends(get_db)):
 
     struct_result = schemas.StructureResult(
         templateName=template_name,
-        templateId=template_id_str,
+        templateId=public_template_id,
         overallScore=db_job.structure_score,
         complianceStatus="pass" if db_job.structure_score >= 85 else "needs_revision" if db_job.structure_score >= 70 else "fail",
         sectionsSummary=schemas.SectionsSummary(
             total=len(struct_checks), matched=matched, missing=missing, outOfOrder=out_of_order,
         ),
         sectionChecks=section_checks,
-        formattingChecks=[],
-        structureRecommendations=[],
+        formattingChecks=[
+            schemas.FormattingCheckItem(
+                id=f["id"], ruleName=f["ruleName"], expected=f["expected"],
+                detected=f["detected"], status=f["status"], recommendation=f["recommendation"],
+            )
+            for f in (tmpl.get("formattingChecks", []) if tmpl else [])
+        ],
+        structureRecommendations=(tmpl.get("structureRecommendations", []) if tmpl else []),
     )
 
     return schemas.JobStatusResponse(
@@ -462,6 +553,32 @@ async def get_analysis_result(job_id: str, db: Session = Depends(get_db)):
 # GET /history
 # ────────────────────────────────────────────────────────
 
+@api_router.get("/profile/stats", response_model=schemas.ProfileStatsOut, tags=["History"])
+async def get_profile_stats(user_id: Optional[str] = None, db: Session = Depends(get_db)):
+    if not user_id:
+        raise HTTPException(status_code=400, detail="กรุณาระบุ user_id")
+    try:
+        jobs = crud.get_user_history(db, user_id=user_id, skip=0, limit=10000)
+    except Exception:
+        logger.exception("failed to load profile stats", extra={"user_id": user_id})
+        return schemas.ProfileStatsOut(
+            totalChecks=0,
+            averageScore=None,
+            averageStructureScore=None,
+            totalIssues=0,
+            engineVersion=ENGINE_VERSION,
+        )
+    if not jobs:
+        return schemas.ProfileStatsOut(totalChecks=0, averageScore=None, averageStructureScore=None, totalIssues=0, engineVersion=ENGINE_VERSION)
+    return schemas.ProfileStatsOut(
+        totalChecks=len(jobs),
+        averageScore=round(sum(j.language_score for j in jobs) / len(jobs), 2),
+        averageStructureScore=round(sum(j.structure_score for j in jobs) / len(jobs), 2),
+        totalIssues=sum(j.issue_count for j in jobs),
+        engineVersion=next((j.engine_version for j in jobs if j.engine_version), ENGINE_VERSION),
+    )
+
+
 @api_router.get("/history", response_model=List[schemas.HistoryItemOut], tags=["History"])
 async def get_history(user_id: Optional[str] = None, skip: int = 0, limit: int = 50,
                       db: Session = Depends(get_db)):
@@ -469,7 +586,12 @@ async def get_history(user_id: Optional[str] = None, skip: int = 0, limit: int =
     if not user_id:
         raise HTTPException(status_code=400, detail="กรุณาระบุ user_id")
 
-    jobs = crud.get_user_history(db, user_id=user_id, skip=skip, limit=limit)
+    try:
+        jobs = crud.get_user_history(db, user_id=user_id, skip=skip, limit=limit)
+    except Exception:
+        logger.exception("failed to load history", extra={"user_id": user_id})
+        return []
+
     return [
         schemas.HistoryItemOut(
             id=str(j.id), documentName=j.document_name,
@@ -478,6 +600,8 @@ async def get_history(user_id: Optional[str] = None, skip: int = 0, limit: int =
             wordCount=j.word_count, writingStyle=j.writing_style,
             originalSnippet=(j.original_text or "")[:200],
             improvedSnippet=(j.improved_text or "")[:200],
+            jobStatus=j.overall_status,
+            engineVersion=j.engine_version or ENGINE_VERSION,
         )
         for j in jobs
     ]

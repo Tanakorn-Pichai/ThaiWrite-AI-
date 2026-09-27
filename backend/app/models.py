@@ -75,6 +75,11 @@ class AnalysisJob(Base):
     issue_count = Column(Integer, default=0)
     original_text = Column(Text, nullable=True)
     improved_text = Column(Text, nullable=True)
+    result_json = Column(JSON, nullable=True)
+    error_message = Column(Text, nullable=True)
+    engine_version = Column(String(100), nullable=True)
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    finished_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 

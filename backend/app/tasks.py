@@ -56,9 +56,7 @@ def analyze_document_task(
 
     template = get_template_by_id(template_id)
     if not template:
-        # Fallback to first template
-        from .structure_checker import STANDARD_TEMPLATES
-        template = STANDARD_TEMPLATES[0]
+        raise ValueError(f"ไม่พบรูปแบบเอกสาร: {template_id}")
 
     structure_result = evaluate_structure(
         content=parsed.get("fullText", content),

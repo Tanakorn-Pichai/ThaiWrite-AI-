@@ -75,9 +75,9 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-3. รัน FastAPI Server:
+3. รัน FastAPI Server (ให้รันจากโฟลเดอร์ `backend`):
 ```bash
-uvicorn app.main:app --reload --port 8000
+python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 4. รัน Celery Worker (อีก terminal หนึ่ง):

@@ -1,6 +1,8 @@
 import React, { useRef, useState } from 'react';
 import { DocTemplate, UploadedFile } from '../../types';
-import { STANDARD_TEMPLATES } from '../../data/mockTemplates';
+import { uploadCustomTemplate } from '../../services/api';
+
+const displayTemplateName = (name: string) => name.replace(/^แม่แบบ\s*/, '');
 import {
   FileCode,
   Upload,
@@ -12,6 +14,8 @@ import {
 
 interface TemplateSelectorProps {
   selectedTemplate: DocTemplate;
+  templates: DocTemplate[];
+  templatesLoading: boolean;
   onSelectTemplate: (template: DocTemplate) => void;
   onCustomTemplateUpload: (file: UploadedFile) => void;
   customTemplateFile: UploadedFile | null;
@@ -20,23 +24,26 @@ interface TemplateSelectorProps {
 
 export const TemplateSelector: React.FC<TemplateSelectorProps> = ({
   selectedTemplate,
+  templates,
+  templatesLoading,
   onSelectTemplate,
   onCustomTemplateUpload,
   customTemplateFile,
   onRemoveCustomTemplate,
 }) => {
   const [showDetails, setShowDetails] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleTemplateFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleTemplateFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       const file = e.target.files[0];
-      const validExtensions = ['.docx', '.pdf', '.dotx'];
+      const validExtensions = ['.docx', '.pdf'];
       const lowerName = file.name.toLowerCase();
       const hasValidExt = validExtensions.some((ext) => lowerName.endsWith(ext));
 
       if (!hasValidExt) {
-        alert('กรุณาอัปโหลดไฟล์แม่แบบนามสกุล .docx, .dotx หรือ .pdf');
+        alert('กรุณาอัปโหลดไฟล์รูปแบบเอกสารนามสกุล .docx หรือ .pdf');
         return;
       }
 
@@ -50,18 +57,40 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({
         size: file.size,
         formattedSize,
         type: file.type || 'template',
+        rawFile: file,
       };
 
-      onCustomTemplateUpload(customFile);
+      setIsUploading(true);
+      try {
+        const uploaded = await uploadCustomTemplate(file);
+        onCustomTemplateUpload(customFile);
+        onSelectTemplate({
+          id: uploaded.id,
+          name: uploaded.name,
+          shortName: uploaded.name.slice(0, 18),
+          code: uploaded.code,
+          category: uploaded.category,
+          description: uploaded.description || 'รูปแบบเอกสารที่อัปโหลดเอง',
+          university: uploaded.university,
+          isCustom: true,
+          requiredSections: uploaded.requiredSections,
+          formattingRules: uploaded.formattingRules,
+        });
+      } catch (error) {
+        alert(error instanceof Error ? error.message : 'อัปโหลดรูปแบบเอกสารไม่สำเร็จ');
+        return;
+      } finally {
+        setIsUploading(false);
+      }
 
-      // Create a custom DocTemplate representation
+      /* Legacy client template construction retained only for fixture reference.
       const customTmpl: DocTemplate = {
         id: `tmpl-custom-${Date.now()}`,
-        name: `แม่แบบเฉพาะ: ${file.name.replace(/\.[^/.]+$/, '')}`,
+        name: `รูปแบบเอกสารเฉพาะ: ${file.name.replace(/\.[^/.]+$/, '')}`,
         shortName: file.name.replace(/\.[^/.]+$/, '').slice(0, 18),
         code: 'CUSTOM-TEMPLATE',
         category: 'custom',
-        description: 'แม่แบบเอกสารที่อัปโหลดเอง',
+        description: 'รูปแบบเอกสารที่อัปโหลดเอง',
         university: 'กำหนดเอง',
         isCustom: true,
         formattingRules: {
@@ -83,6 +112,7 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({
       };
 
       onSelectTemplate(customTmpl);
+      */
       e.target.value = '';
     }
   };
@@ -96,7 +126,7 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({
             <FileCode className="w-3.5 h-3.5" />
           </div>
           <h3 className="text-xs sm:text-sm font-bold text-[#1E2923]">
-            1. เลือกแม่แบบ (Template)
+            1. เลือกรูปแบบเอกสาร
           </h3>
         </div>
 
@@ -112,7 +142,9 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({
 
       {/* Clean Template Select Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        {STANDARD_TEMPLATES.map((tmpl) => {
+        {templatesLoading ? (
+          <p className="col-span-full text-xs text-[#5A655E]">กำลังโหลดรูปแบบเอกสารจาก Backend...</p>
+        ) : templates.filter((tmpl) => !tmpl.isCustom && tmpl.category !== 'custom').map((tmpl) => {
           const isSelected = selectedTemplate.id === tmpl.id;
           return (
             <button
@@ -136,7 +168,7 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({
                   {isSelected && <CheckCircle2 className="w-3.5 h-3.5 text-white" />}
                 </div>
                 <span className="text-xs sm:text-sm font-semibold text-[#1E2923] truncate">
-                  {tmpl.shortName || tmpl.name}
+                  {displayTemplateName(tmpl.shortName || tmpl.name)}
                 </span>
               </div>
 
@@ -153,7 +185,7 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({
         <input
           ref={fileInputRef}
           type="file"
-          accept=".docx,.pdf,.dotx"
+          accept=".docx,.pdf"
           className="hidden"
           onChange={handleTemplateFileUpload}
         />
@@ -163,7 +195,7 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({
             <div className="flex items-center gap-2 min-w-0">
               <CheckCircle2 className="w-4 h-4 text-[#006241] shrink-0" />
               <div className="truncate">
-                <span className="font-semibold text-[#1E2923]">แม่แบบของคุณ:</span>{' '}
+                <span className="font-semibold text-[#1E2923]">รูปแบบเอกสารของคุณ:</span>{' '}
                 <span className="font-medium text-[#006241]">
                   {customTemplateFile.name}
                 </span>
@@ -182,14 +214,15 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({
           </div>
         ) : (
           <div className="flex items-center justify-between text-xs">
-            <span className="text-[#5A655E]">หรือใช้แม่แบบของคุณเอง:</span>
+            <span className="text-[#5A655E]">หรือใช้รูปแบบเอกสารของคุณเอง:</span>
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
+              disabled={isUploading}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-[#DCE3DD] hover:border-[#006241] text-[#006241] font-medium hover:bg-[#E2ECE5] transition-colors cursor-pointer shadow-2xs"
             >
               <Upload className="w-3.5 h-3.5 text-[#006241]" />
-              <span>อัปโหลดแม่แบบ</span>
+              <span>อัปโหลดรูปแบบเอกสาร</span>
             </button>
           </div>
         )}
@@ -201,7 +234,7 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({
           <div className="flex items-center justify-between border-b border-[#DCE3DD] pb-2">
             <span className="font-bold text-[#1E2923] flex items-center gap-1.5">
               <BookOpen className="w-3.5 h-3.5 text-[#006241]" />
-              เกณฑ์แม่แบบ: {selectedTemplate.name}
+              เกณฑ์รูปแบบเอกสาร: {displayTemplateName(selectedTemplate.name)}
             </span>
             <span className="font-mono text-[10px] bg-[#E2ECE5] text-[#006241] px-2 py-0.5 rounded font-semibold">
               {selectedTemplate.code}

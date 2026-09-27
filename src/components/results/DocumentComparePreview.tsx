@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   DocumentPreviewData,
   StructureResult,
@@ -57,6 +57,10 @@ export const DocumentComparePreview: React.FC<DocumentComparePreviewProps> = ({
   // Export format selection
   const [exportFormat, setExportFormat] = useState<'pdf' | 'docx' | 'both'>('both');
 
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(Math.max(page, 1), (previewData?.pages?.length || 0) + 1));
+  }, [previewData?.pages?.length]);
+
   if (!previewData || !previewData.pages) {
     return (
       <div className="p-8 text-center text-[#5A655E]">
@@ -75,16 +79,20 @@ export const DocumentComparePreview: React.FC<DocumentComparePreviewProps> = ({
     (page.annotatedParagraphs || []).flatMap((p) => p.annotations || [])
   );
 
-  const handleDownload = () => {
-    if (exportFormat === 'pdf') {
-      exportDocumentAsPDF(previewData, analysisResult, structureResult);
-      onDownloadFeedback?.('ดาวน์โหลดไฟล์ PDF สำเร็จ');
-    } else if (exportFormat === 'docx') {
-      exportDocumentAsDocx(previewData, analysisResult, structureResult);
-      onDownloadFeedback?.('ดาวน์โหลดไฟล์ Word (.docx) สำเร็จ');
-    } else {
-      exportBothFormats(previewData, analysisResult, structureResult);
-      onDownloadFeedback?.('ดาวน์โหลดทั้งไฟล์ PDF และ Word (.docx) สำเร็จ');
+  const handleDownload = async () => {
+    try {
+      if (exportFormat === 'pdf') {
+        await exportDocumentAsPDF(previewData, analysisResult, structureResult);
+        onDownloadFeedback?.('ดาวน์โหลดไฟล์ PDF สำเร็จ');
+      } else if (exportFormat === 'docx') {
+        exportDocumentAsDocx(previewData, analysisResult, structureResult);
+        onDownloadFeedback?.('ดาวน์โหลดไฟล์ Word สำเร็จ');
+      } else {
+        await exportBothFormats(previewData, analysisResult, structureResult);
+        onDownloadFeedback?.('ดาวน์โหลดทั้งไฟล์ PDF และ Word สำเร็จ');
+      }
+    } catch {
+      onDownloadFeedback?.('ดาวน์โหลดไม่สำเร็จ กรุณาลองใหม่อีกครั้ง');
     }
   };
 

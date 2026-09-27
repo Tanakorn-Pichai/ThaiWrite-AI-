@@ -31,6 +31,8 @@ interface InputPanelProps {
   style: WritingStyle;
   onStyleChange: (style: WritingStyle) => void;
   selectedTemplate: DocTemplate;
+  templates: DocTemplate[];
+  templatesLoading: boolean;
   onSelectTemplate: (tmpl: DocTemplate) => void;
   customTemplateFile: UploadedFile | null;
   onCustomTemplateUpload: (file: UploadedFile) => void;
@@ -56,6 +58,8 @@ export const InputPanel: React.FC<InputPanelProps> = ({
   style,
   onStyleChange,
   selectedTemplate,
+  templates,
+  templatesLoading,
   onSelectTemplate,
   customTemplateFile,
   onCustomTemplateUpload,
@@ -79,7 +83,7 @@ export const InputPanel: React.FC<InputPanelProps> = ({
     const parts = [];
     if (checkOptions.checkWords) parts.push('คำ');
     if (checkOptions.checkStructure) parts.push('โครงสร้าง');
-    if (mode === 'file' && checkOptions.compareTemplate) parts.push('เทียบแม่แบบ');
+    if (mode === 'file' && checkOptions.compareTemplate) parts.push('เทียบรูปแบบเอกสาร');
     return parts.length > 0 ? `ตรวจ${parts.join(' และ ')}` : 'ตรวจเอกสาร';
   };
 
@@ -95,7 +99,7 @@ export const InputPanel: React.FC<InputPanelProps> = ({
             </h2>
           </div>
           <p className="text-xs text-[#5A655E] mt-0.5">
-            ตรวจคำ ไวยากรณ์ และโครงสร้างตามแม่แบบ
+            ตรวจคำ ไวยากรณ์ และโครงสร้างตามรูปแบบเอกสาร
           </p>
         </div>
 
@@ -120,7 +124,7 @@ export const InputPanel: React.FC<InputPanelProps> = ({
             mode={mode}
             onSelectMode={onSelectMode}
             disabledTextMode={requiresFileMode}
-            disabledReason="การตรวจโครงสร้างหรือเทียบแม่แบบรองรับเฉพาะไฟล์เอกสาร"
+            disabledReason="การตรวจโครงสร้างหรือเทียบรูปแบบเอกสารรองรับเฉพาะไฟล์เอกสาร"
           />
         </div>
 
@@ -129,6 +133,8 @@ export const InputPanel: React.FC<InputPanelProps> = ({
           <div className="space-y-1.5 animate-in fade-in duration-200">
             <TemplateSelector
               selectedTemplate={selectedTemplate}
+              templates={templates}
+              templatesLoading={templatesLoading}
               onSelectTemplate={onSelectTemplate}
               customTemplateFile={customTemplateFile}
               onCustomTemplateUpload={onCustomTemplateUpload}

@@ -146,10 +146,13 @@ STANDARD_TEMPLATES: List[Dict[str, Any]] = [
 
 
 def get_template_by_id(template_id: str) -> Optional[Dict[str, Any]]:
-    """Find a template by its ID."""
-    for t in STANDARD_TEMPLATES:
-        if t["id"] == template_id:
-            return t
+    """Find a template by stable public id or code."""
+    if not template_id:
+        return None
+    normalized = template_id.strip().upper()
+    for template in STANDARD_TEMPLATES:
+        if template["id"] == template_id or template["code"].upper() == normalized:
+            return template
     return None
 
 
@@ -309,8 +312,8 @@ def _build_formatting_checks(
         font_status = "pass" if has_sarabun else "warning"
         font_detected = ", ".join(detected_fonts[:3])
     else:
-        font_status = "pass"
-        font_detected = "ตรวจพบฟอนต์มาตรฐาน TH Sarabun New"
+        font_status = "warning"
+        font_detected = "ไม่มีข้อมูลฟอนต์จากเอกสาร จึงยังยืนยันความถูกต้องไม่ได้"
 
     checks.append({
         "id": "fmt-font",
@@ -330,12 +333,19 @@ def _build_formatting_checks(
     if margins:
         left = margins.get("left", 1.5)
         top = margins.get("top", 1.5)
-        margin_ok = (abs(left - 1.5) < 0.1 and abs(top - 1.0) < 0.6)
+        right = margins.get("right", 1.0)
+        bottom = margins.get("bottom", 1.0)
+        margin_ok = (
+            abs(left - 1.5) < 0.1
+            and abs(top - 1.5) < 0.1
+            and abs(right - 1.0) < 0.1
+            and abs(bottom - 1.0) < 0.1
+        )
         margin_status = "pass" if margin_ok else "warning"
-        margin_detected = f"ซ้าย {left} นิ้ว, บน {top} นิ้ว, ขวา {margins.get('right', 1.0)} นิ้ว, ล่าง {margins.get('bottom', 1.0)} นิ้ว"
+        margin_detected = f"ซ้าย {left} นิ้ว, บน {top} นิ้ว, ขวา {right} นิ้ว, ล่าง {bottom} นิ้ว"
     else:
-        margin_status = "pass"
-        margin_detected = "ตั้งค่าระยะขอบหน้ากระดาษมาตรฐาน"
+        margin_status = "warning"
+        margin_detected = "ไม่มีข้อมูลระยะขอบจากเอกสาร จึงยังยืนยันความถูกต้องไม่ได้"
 
     checks.append({
         "id": "fmt-margin",

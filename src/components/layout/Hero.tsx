@@ -3,7 +3,7 @@ import { Check } from 'lucide-react';
 
 export const Hero: React.FC = () => {
   const chips = [
-    'เทียบแม่แบบ (Template)',
+    'เทียบรูปแบบเอกสาร (Template)',
     'โครงสร้างและลำดับบท',
     'ตรวจคำสะกดและไวยากรณ์',
     'ปรับภาษาวิชาการ',
@@ -15,7 +15,7 @@ export const Hero: React.FC = () => {
         ตรวจงานเขียนและโครงสร้างเอกสารภาษาไทย
       </h1>
       <p className="mt-2.5 sm:mt-3 text-sm sm:text-base text-[#5A655E] max-w-xl mx-auto leading-relaxed">
-        ตรวจสอบไวยากรณ์ คำสะกด และความถูกต้องของหัวข้อตามแม่แบบ (Template)
+        ตรวจสอบไวยากรณ์ คำสะกด และความถูกต้องของหัวข้อตามรูปแบบเอกสาร
       </p>
 
       {/* Feature Chips */}

@@ -42,6 +42,7 @@ class DocTemplateOut(BaseModel):
     university: Optional[str] = None
     is_custom: bool = False
     formattingRules: FormattingRules
+    requiredSections: List[TemplateSectionOut] = []
     requiredSectionsCount: int = 0
 
     class Config:
@@ -54,6 +55,10 @@ class CustomTemplateUploadResponse(BaseModel):
     code: str
     category: str = "custom"
     isCustom: bool = True
+    description: Optional[str] = None
+    university: Optional[str] = None
+    formattingRules: FormattingRules
+    requiredSections: List[TemplateSectionOut] = []
     detectedSections: List[TemplateSectionOut] = []
 
 
@@ -147,7 +152,18 @@ class JobStatusResponse(BaseModel):
     jobId: str
     status: str  # 'pending' | 'processing' | 'completed' | 'failed'
     step: Optional[str] = None
+    error: Optional[str] = None
+    requestId: Optional[str] = None
+    engineVersion: Optional[str] = None
     result: Optional[AnalysisResponse] = None
+
+
+class ProfileStatsOut(BaseModel):
+    totalChecks: int
+    averageScore: Optional[float] = None
+    averageStructureScore: Optional[float] = None
+    totalIssues: int
+    engineVersion: str
 
 
 # ────────────────────────────────────────────────────────
@@ -165,6 +181,8 @@ class HistoryItemOut(BaseModel):
     writingStyle: str
     originalSnippet: Optional[str] = None
     improvedSnippet: Optional[str] = None
+    jobStatus: str = "completed"
+    engineVersion: Optional[str] = None
 
     class Config:
         from_attributes = True
