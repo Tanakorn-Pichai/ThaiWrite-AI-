@@ -10,7 +10,7 @@ interface TextInputProps {
 }
 
 export const TextInput = forwardRef<HTMLTextAreaElement, TextInputProps>(
-  ({ value, onChange, onClear, onUseSample, maxLength = 5000 }, ref) => {
+  ({ value, onChange, onClear, onUseSample, maxLength = 20000 }, ref) => {
     const count = value.length;
     const isNearLimit = count > maxLength * 0.9;
     const isAtLimit = count >= maxLength;

@@ -102,10 +102,15 @@ async def request_logging_middleware(request: Request, call_next):
 async def global_exception_handler(request: Request, exc: Exception):
     logger.exception("unhandled application error", extra={"method": request.method, "path": request.url.path})
     request_id = request.headers.get("X-Request-ID") or "-"
+    origin = request.headers.get("Origin")
+    allowed_origin = origin if origin and (origin in origins or __import__("re").match(origin_regex, origin)) else None
+    headers = {"X-Request-ID": request_id}
+    if allowed_origin:
+        headers["Access-Control-Allow-Origin"] = allowed_origin
     return JSONResponse(
         status_code=500,
         content={"detail": "เกิดข้อผิดพลาดภายในระบบ", "requestId": request_id},
-        headers={"X-Request-ID": request_id},
+        headers=headers,
     )
 
 

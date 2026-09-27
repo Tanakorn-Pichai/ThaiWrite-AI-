@@ -5,7 +5,9 @@ Uses PyThaiNLP's newmm tokenizer for word segmentation,
 spell checking, and academic style rewriting.
 """
 
+import os
 import re
+from functools import lru_cache
 from typing import List, Dict, Any, Tuple
 
 from pythainlp.tokenize import word_tokenize
@@ -76,6 +78,25 @@ STYLE_RULE_TYPES: Dict[str, set[str]] = {
 }
 
 # Known misspellings for quick lookup
+CUSTOM_DICTIONARY_WORDS = tuple(
+    word.strip() for word in os.getenv("THAI_CUSTOM_WORDS", "").split(",") if word.strip()
+)
+
+
+@lru_cache(maxsize=1)
+def _thai_word_set() -> set[str]:
+    """Load the Thai dictionary once per process instead of once per request."""
+    return set(thai_words())
+
+
+@lru_cache(maxsize=2048)
+def _cached_spell_suggestion(word: str) -> str:
+    """Cache spell suggestions because documents commonly repeat the same words."""
+    suggestion = spell_correct(word)
+    return suggestion or ""
+
+
+# Known misspellings for quick lookup
 KNOWN_MISSPELLINGS: Dict[str, str] = {
     "สัมนา": "สัมมนา",
     "เค้า": "เขา",
@@ -112,16 +133,22 @@ def analyze_thai_text(text: str, writing_style: str = "เชิงวิชา�
     """
     if not text or not text.strip():
         return _empty_result()
-
     cleaned = text.strip()
 
     # ── 1. Word tokenization via PyThaiNLP (newmm engine) ──
-    words = word_tokenize(cleaned, engine="newmm")
+    try:
+        tokenizer_kwargs = {"engine": "newmm"}
+        if CUSTOM_DICTIONARY_WORDS:
+            tokenizer_kwargs["custom_dict"] = list(CUSTOM_DICTIONARY_WORDS)
+        words = word_tokenize(cleaned, **tokenizer_kwargs)
+    except (TypeError, ValueError):
+        # Older PyThaiNLP releases may not support custom_dict for newmm.
+        words = word_tokenize(cleaned, engine="newmm")
     word_count = len([w for w in words if w.strip()])
     sentence_count = _count_sentences(cleaned)
 
     # ── 2. Spelling check via PyThaiNLP ──
-    spelling_issues = _check_spelling(words)
+    spelling_issues = _check_spelling(words, cleaned)
 
     # ── 3. Repeated words check (คำซ้ำซ้อน) ──
     repeated_issues, text_after_rep = _check_repeated_words(cleaned)
@@ -189,8 +216,11 @@ def analyze_thai_text(text: str, writing_style: str = "เชิงวิชา�
         {
             "text": iss["detected_text"],
             "type": iss["type"],
-            "replacement": iss["replacement"],
+            "replacement": iss.get("replacement", ""),
             "reason": iss["reason"],
+            "suggestions": iss.get("suggestions", [iss["replacement"]] if iss.get("replacement") else []),
+            "startOffset": iss.get("start_offset"),
+            "endOffset": iss.get("end_offset"),
         }
         for iss in all_issues
     ]
@@ -215,10 +245,10 @@ def analyze_thai_text(text: str, writing_style: str = "เชิงวิชา�
 # Internal helpers
 # ────────────────────────────────────────────────────────
 
-def _check_spelling(words: List[str]) -> List[Dict[str, str]]:
+def _check_spelling(words: List[str], text: str) -> List[Dict[str, Any]]:
     """Check each token against PyThaiNLP dictionary and known misspellings."""
-    issues: List[Dict[str, str]] = []
-    thai_word_set = thai_words()
+    issues: List[Dict[str, Any]] = []
+    thai_word_set = _thai_word_set()
 
     for word in words:
         w = word.strip()
@@ -229,25 +259,33 @@ def _check_spelling(words: List[str]) -> List[Dict[str, str]]:
         if not re.search(r'[฀-๿]', w):
             continue
 
+        start = text.find(w)
         # Check known misspellings first
         if w in KNOWN_MISSPELLINGS:
+            replacement = KNOWN_MISSPELLINGS[w]
             issues.append({
                 "type": "spelling",
                 "detected_text": w,
-                "replacement": KNOWN_MISSPELLINGS[w],
-                "reason": f"คำว่า '{w}' สะกดผิด ควรเปลี่ยนเป็น '{KNOWN_MISSPELLINGS[w]}' ตามพจนานุกรมราชบัณฑิตยสถาน",
+                "replacement": replacement,
+                "suggestions": [replacement],
+                "reason": f"คำว่า '{w}' สะกดผิด ควรเปลี่ยนเป็น '{replacement}' ตามพจนานุกรมราชบัณฑิตยสถาน",
+                "start_offset": start if start >= 0 else None,
+                "end_offset": start + len(w) if start >= 0 else None,
             })
             continue
 
         # Check against PyThaiNLP corpus
         if w not in thai_word_set and len(w) >= 3:
-            suggestion = spell_correct(w)
+            suggestion = _cached_spell_suggestion(w)
             if suggestion and suggestion != w:
                 issues.append({
                     "type": "spelling",
                     "detected_text": w,
                     "replacement": suggestion,
+                    "suggestions": [suggestion],
                     "reason": f"คำว่า '{w}' อาจสะกดผิด แนะนำ '{suggestion}'",
+                    "start_offset": start if start >= 0 else None,
+                    "end_offset": start + len(w) if start >= 0 else None,
                 })
 
     return issues

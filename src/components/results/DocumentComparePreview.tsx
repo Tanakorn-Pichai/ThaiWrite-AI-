@@ -58,8 +58,17 @@ export const DocumentComparePreview: React.FC<DocumentComparePreviewProps> = ({
   const [exportFormat, setExportFormat] = useState<'pdf' | 'docx' | 'both'>('both');
 
   useEffect(() => {
-    setCurrentPage((page) => Math.min(Math.max(page, 1), (previewData?.pages?.length || 0) + 1));
-  }, [previewData?.pages?.length]);
+    const contentPages = previewData?.pages?.length || 0;
+    const annotationCount = (previewData?.pages || []).reduce(
+      (total, page) => total + page.annotatedParagraphs.reduce(
+        (count, paragraph) => count + (paragraph.annotations?.length || 0),
+        0,
+      ),
+      0,
+    );
+    const commentPages = Math.max(1, Math.ceil(annotationCount / 5));
+    setCurrentPage((page) => Math.min(Math.max(page, 1), contentPages + commentPages));
+  }, [previewData?.pages]);
 
   if (!previewData || !previewData.pages) {
     return (
@@ -70,13 +79,18 @@ export const DocumentComparePreview: React.FC<DocumentComparePreviewProps> = ({
   }
 
   const totalContentPages = previewData.pages.length;
-  // Total pages including the separate comments sheet (หน้าแยกของเอกสาร)
-  const totalTotalPages = totalContentPages + 1;
-  const isCommentsSheet = currentPage === totalTotalPages;
-
-  // Collect all annotations with their sequential reference numbers
+  const commentsPageSize = 5;
+  // Comments are virtual pages after the content pages.
   const allAnnotations: DocumentAnnotation[] = (previewData.pages || []).flatMap((page) =>
     (page.annotatedParagraphs || []).flatMap((p) => p.annotations || [])
+  );
+  const totalCommentPages = Math.max(1, Math.ceil(allAnnotations.length / commentsPageSize));
+  const totalTotalPages = totalContentPages + totalCommentPages;
+  const isCommentsSheet = currentPage > totalContentPages;
+  const commentsPageIndex = Math.max(0, currentPage - totalContentPages - 1);
+  const visibleCommentAnnotations = allAnnotations.slice(
+    commentsPageIndex * commentsPageSize,
+    (commentsPageIndex + 1) * commentsPageSize,
   );
 
   const handleDownload = async () => {
@@ -241,7 +255,7 @@ export const DocumentComparePreview: React.FC<DocumentComparePreviewProps> = ({
    * Component for PAGE SEPARATE: REVIEW COMMENTS SHEET (หน้าแยกของเอกสาร)
    * Rendered as a Standard A4 Paper Sheet in fullscreen, compact in preview
    */
-  const renderA4CommentsSheet = () => (
+  const renderA4CommentsSheet = (commentPage: number, comments: DocumentAnnotation[]) => (
     <div
       key="page-comments-sheet"
       className={`w-full bg-white rounded-xl border border-[#006241]/30 mx-auto flex flex-col justify-between font-['Prompt',sans-serif] relative select-text transition-all animate-in fade-in duration-200 ${
@@ -263,7 +277,7 @@ export const DocumentComparePreview: React.FC<DocumentComparePreviewProps> = ({
             <span>บันทึกข้อคิดเห็น (Comments Sheet)</span>
           </div>
           <span className="font-mono text-[#006241] font-semibold bg-[#E2ECE5] px-2 py-0.5 rounded text-[10px]">
-            หน้า {totalTotalPages}
+            หน้า {currentPage} / {totalTotalPages}
           </span>
         </div>
 
@@ -271,22 +285,22 @@ export const DocumentComparePreview: React.FC<DocumentComparePreviewProps> = ({
         <div className="p-2.5 rounded-lg bg-[#F4F6F4] border border-[#DCE3DD] mb-3 flex items-center justify-between gap-2 text-xs">
           <div>
             <h4 className="font-bold text-[#1E2923]">
-              ข้อคิดเห็นทั้งหมด ({allAnnotations.length} จุด)
+              ข้อคิดเห็นหน้า {commentPage + 1}/{totalCommentPages} ({comments.length} จุด จากทั้งหมด {allAnnotations.length})
             </h4>
           </div>
           <div className="flex items-center gap-1.5 text-[10px]">
             <span className="px-1.5 py-0.5 rounded bg-rose-50 border border-rose-200 text-rose-700 font-semibold">
-              คำผิด: {previewData.totalWordErrors}
+              คำผิด: {comments.filter((annotation) => annotation.type === 'word').length}
             </span>
             <span className="px-1.5 py-0.5 rounded bg-[#E2ECE5] border border-[#006241]/20 text-[#006241] font-semibold">
-              โครงสร้าง: {previewData.totalStructureErrors}
+              โครงสร้าง: {comments.filter((annotation) => annotation.type === 'structure').length}
             </span>
           </div>
         </div>
 
         {/* List of comments */}
         <div className={`space-y-2.5 ${!isFullScreen ? 'max-h-[220px] overflow-y-auto pr-1' : ''}`}>
-          {allAnnotations.map((ann, idx) => {
+          {comments.map((ann, idx) => {
             const num = ann.number || idx + 1;
             const isWord = ann.type === 'word';
 
@@ -350,7 +364,7 @@ export const DocumentComparePreview: React.FC<DocumentComparePreviewProps> = ({
       {/* Footer */}
       <div className="border-t border-slate-100 pt-2 mt-3 flex items-center justify-between text-[10px] text-[#828F86] select-none">
         <span>หน้าแยกบันทึกข้อคิดเห็น (Review Comments Sheet)</span>
-        <span className="font-mono">หน้าที่ {totalTotalPages} จาก {totalTotalPages}</span>
+        <span className="font-mono">หน้าความคิดเห็น {commentPage + 1} จาก {totalCommentPages}</span>
       </div>
     </div>
   );
@@ -459,9 +473,11 @@ export const DocumentComparePreview: React.FC<DocumentComparePreviewProps> = ({
                           หน้า {p.pageNumber} / {totalTotalPages}
                         </option>
                       ))}
-                      <option value={totalTotalPages}>
-                        📑 หน้าบันทึกข้อคิดเห็น (หน้า {totalTotalPages})
-                      </option>
+                      {Array.from({ length: totalCommentPages }, (_, index) => (
+                    <option key={`top-comments-${index}`} value={totalContentPages + index + 1}>
+                      📑 หน้าความคิดเห็น {index + 1} / {totalCommentPages}
+                    </option>
+                  ))}
                     </select>
                     <ChevronDown className="w-3.5 h-3.5 text-[#5A655E] absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                   </div>
@@ -574,7 +590,7 @@ export const DocumentComparePreview: React.FC<DocumentComparePreviewProps> = ({
                   {!isCommentsSheet ? (
                     renderA4Sheet(previewData.pages[currentPage - 1], 'annotated')
                   ) : (
-                    renderA4CommentsSheet()
+                    renderA4CommentsSheet(commentsPageIndex, visibleCommentAnnotations)
                   )}
                 </div>
               </div>
@@ -595,7 +611,7 @@ export const DocumentComparePreview: React.FC<DocumentComparePreviewProps> = ({
                 {!isCommentsSheet ? (
                   renderA4Sheet(previewData.pages[currentPage - 1], viewMode)
                 ) : (
-                  renderA4CommentsSheet()
+                  renderA4CommentsSheet(commentsPageIndex, visibleCommentAnnotations)
                 )}
               </div>
             )}
@@ -632,9 +648,11 @@ export const DocumentComparePreview: React.FC<DocumentComparePreviewProps> = ({
                         หน้า {p.pageNumber} / {totalTotalPages}
                       </option>
                     ))}
-                    <option value={totalTotalPages}>
-                      📑 หน้าบันทึกข้อคิดเห็น
-                    </option>
+                    {Array.from({ length: totalCommentPages }, (_, index) => (
+                      <option key={`bottom-comments-${index}`} value={totalContentPages + index + 1}>
+                        📑 หน้าความคิดเห็น {index + 1} / {totalCommentPages}
+                      </option>
+                    ))}
                   </select>
                   <ChevronDown className="w-3.5 h-3.5 text-[#5A655E] absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
                 </div>
@@ -841,9 +859,11 @@ export const DocumentComparePreview: React.FC<DocumentComparePreviewProps> = ({
                     หน้า {p.pageNumber} / {totalTotalPages}
                   </option>
                 ))}
-                <option value={totalTotalPages}>
-                  📑 หน้าบันทึกข้อคิดเห็น (หน้า {totalTotalPages})
-                </option>
+                {Array.from({ length: totalCommentPages }, (_, index) => (
+                  <option key={`normal-comments-${index}`} value={totalContentPages + index + 1}>
+                    📑 หน้าความคิดเห็น {index + 1} / {totalCommentPages}
+                  </option>
+                ))}
               </select>
               <ChevronDown className="w-3.5 h-3.5 text-[#5A655E] absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             </div>
@@ -910,7 +930,7 @@ export const DocumentComparePreview: React.FC<DocumentComparePreviewProps> = ({
               {!isCommentsSheet ? (
                 renderA4Sheet(previewData.pages[currentPage - 1], 'annotated')
               ) : (
-                renderA4CommentsSheet()
+                renderA4CommentsSheet(commentsPageIndex, visibleCommentAnnotations)
               )}
             </div>
           </div>
@@ -930,7 +950,7 @@ export const DocumentComparePreview: React.FC<DocumentComparePreviewProps> = ({
             {!isCommentsSheet ? (
               renderA4Sheet(previewData.pages[currentPage - 1], viewMode)
             ) : (
-              renderA4CommentsSheet()
+              renderA4CommentsSheet(commentsPageIndex, visibleCommentAnnotations)
             )}
           </div>
         )}

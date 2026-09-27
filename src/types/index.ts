@@ -16,9 +16,12 @@ export interface CategoryCounts {
 
 export interface IssueHighlight {
   text: string;
-  type: 'spelling' | 'grammar' | 'wordUsage' | 'academic';
+  type: 'spelling' | 'grammar' | 'wordUsage' | 'academic' | 'register' | 'punctuation';
   replacement: string;
   reason: string;
+  suggestions?: string[];
+  startOffset?: number;
+  endOffset?: number;
 }
 
 export interface DetailedBreakdown {
@@ -158,7 +161,7 @@ export interface DocumentAnnotation {
   originalText: string;
   suggestedText?: string;
   comment: string;
-  category: 'spelling' | 'grammar' | 'wordUsage' | 'academic' | 'structure_missing' | 'structure_order';
+  category: 'spelling' | 'grammar' | 'wordUsage' | 'academic' | 'register' | 'punctuation' | 'structure_missing' | 'structure_order';
   severity: 'error' | 'warning' | 'info';
 }
 

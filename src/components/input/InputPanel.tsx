@@ -156,7 +156,7 @@ export const InputPanel: React.FC<InputPanelProps> = ({
               onChange={onTextChange}
               onClear={onClearText}
               onUseSample={onUseSampleText}
-              maxLength={5000}
+              maxLength={20000}
             />
           ) : (
             <div className="space-y-3">

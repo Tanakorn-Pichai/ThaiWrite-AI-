@@ -71,6 +71,9 @@ class LanguageIssueItem(BaseModel):
     type: str
     replacement: str
     reason: str
+    suggestions: List[str] = []
+    startOffset: Optional[int] = None
+    endOffset: Optional[int] = None
 
 
 class CategoryCounts(BaseModel):

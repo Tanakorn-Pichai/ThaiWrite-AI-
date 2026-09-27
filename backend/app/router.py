@@ -227,7 +227,15 @@ def _build_analysis_response(job_id: str, doc_name: str, lang: dict, struct: dic
         originalText=lang.get("originalText", ""),
         improvedText=lang.get("improvedText", ""),
         detailedBreakdown=schemas.DetailedBreakdown(**lang.get("detailedBreakdown", {})),
-        highlights=[schemas.LanguageIssueItem(**h) for h in lang.get("highlights", [])],
+        highlights=[schemas.LanguageIssueItem(
+            text=h.get("text", ""),
+            type=h.get("type", "grammar"),
+            replacement=h.get("replacement", ""),
+            reason=h.get("reason", ""),
+            suggestions=h.get("suggestions", []),
+            startOffset=h.get("startOffset", h.get("start_offset")),
+            endOffset=h.get("endOffset", h.get("end_offset")),
+        ) for h in lang.get("highlights", [])],
     )
     summary = struct.get("sectionsSummary", {})
     struct_result = schemas.StructureResult(
@@ -394,7 +402,15 @@ async def submit_analysis(
 
     # ── Synchronous mode (default, no Celery needed) ──
     if not USE_CELERY:
-        lang, struct = _run_analysis_sync(content, writing_style, template_id, file_bytes, file_type, db, job)
+        try:
+            lang, struct = _run_analysis_sync(content, writing_style, template_id, file_bytes, file_type, db, job)
+        except ValueError as exc:
+            db.rollback()
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except Exception as exc:
+            db.rollback()
+            logger.exception("analysis failed", extra={"job_id": job_id, "writing_style": writing_style})
+            raise HTTPException(status_code=500, detail="ระบบตรวจวิเคราะห์ไม่สามารถประมวลผลข้อความนี้ได้") from exc
         return schemas.JobStatusResponse(
             jobId=job_id,
             status="completed",
