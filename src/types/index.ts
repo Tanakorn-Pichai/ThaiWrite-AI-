@@ -88,7 +88,7 @@ export interface FormattingCheckItem {
   ruleName: string;
   expected: string;
   detected: string;
-  status: 'pass' | 'warning' | 'fail';
+  status: 'pass' | 'warning' | 'fail' | 'unknown';
   recommendation: string;
 }
 

@@ -214,7 +214,11 @@ def evaluate_structure(
 
     # ── Formatting checks ──
     formatting_checks = _build_formatting_checks(
-        formatting_rules, file_margins, font_info
+        formatting_rules,
+        file_margins,
+        font_info,
+        detected_headings=detected_headings,
+        content=content,
     )
 
     # ── Summary ──
@@ -245,10 +249,8 @@ def evaluate_structure(
         )
     if out_of_order > 0:
         recommendations.append("จัดเรียงลำดับหัวข้อย่อยให้ถูกต้องตามโครงสร้างแม่แบบ")
-    recommendations.append("ตรวจสอบหน้าแรกของแต่ละบท ให้ซ่อนเลขหน้าตามระเบียบการจัดพิมพ์")
-    recommendations.append(
-        "ตรวจสอบการจัดทำสารบัญ (Table of Contents) ให้ตรงกับหมายเลขหน้าจริงของไฟล์"
-    )
+    if any(check["status"] == "unknown" for check in formatting_checks):
+        recommendations.append("เพิ่มข้อมูลรูปแบบเอกสารหรืออัปโหลดไฟล์ที่มีข้อมูลการจัดหน้า เพื่อยืนยันรายการที่ยังตรวจสอบไม่ได้")
 
     return {
         "templateName": template["name"],
@@ -299,6 +301,8 @@ def _build_formatting_checks(
     rules: Dict[str, str],
     margins: Optional[Dict[str, float]],
     font_info: Optional[Dict[str, Any]],
+    detected_headings: Optional[List[Dict[str, Any]]] = None,
+    content: str = "",
 ) -> List[Dict[str, Any]]:
     """Build formatting compliance checks based on detected metadata."""
 
@@ -361,23 +365,34 @@ def _build_formatting_checks(
     })
 
     # 3. Heading hierarchy
+    headings = detected_headings or []
+    hierarchy_status, hierarchy_detected = _check_heading_hierarchy(headings)
     checks.append({
         "id": "fmt-hierarchy",
         "ruleName": "ลำดับหัวข้อและเลขข้อย่อย (Heading Hierarchy)",
         "expected": "จัดลำดับหัวข้อหลัก (18pt หนา) และหัวข้อย่อย (16pt หนา) สม่ำเสมอ",
-        "detected": "พบลำดับหัวข้อย่อยบางจุดใช้ตัวเลขไม่สอดคล้องกับเลขบท",
-        "status": "warning",
-        "recommendation": "ปรับแก้เลขข้อเช่นในบทที่ 1 ควรขึ้นต้นด้วย 1.1, 1.2 ตามลำดับ และใช้ฟอนต์ตัวหนาเน้นหัวข้อ",
+        "detected": hierarchy_detected,
+        "status": hierarchy_status,
+        "recommendation": (
+            "ลำดับหัวข้อและเลขข้อย่อยสอดคล้องกัน"
+            if hierarchy_status == "pass"
+            else "ตรวจสอบเลขหัวข้อให้เรียงต่อเนื่อง เช่น 1.1, 1.2, 1.3 และให้ระดับหัวข้อตรงกับเลขบท"
+        ),
     })
 
     # 4. Page numbers
+    pagination_status, pagination_detected = _check_pagination(content)
     checks.append({
         "id": "fmt-pagination",
         "ruleName": "การใส่เลขหน้าและสารบัญ (Page Numbers & TOC)",
         "expected": rules.get("pageNumbering", "มุมบนขวา"),
-        "detected": "ตรวจพบเลขหน้า แต่หน้าแรกของบทยังมีตัวเลขปรากฏอยู่",
-        "status": "warning",
-        "recommendation": "หน้าแรกของแต่ละบทต้องเว้นการแสดงเลขหน้าตามแบบฟอร์มวิทยานิพนธ์",
+        "detected": pagination_detected,
+        "status": pagination_status,
+        "recommendation": (
+            "พบข้อมูลเลขหน้า/สารบัญเพียงพอสำหรับการตรวจ"
+            if pagination_status == "pass"
+            else "ไม่สามารถยืนยันเลขหน้าและสารบัญจากข้อความที่สกัดได้ ควรตรวจสอบในไฟล์ต้นฉบับ"
+        ),
     })
 
     # 5. Line spacing
@@ -391,3 +406,39 @@ def _build_formatting_checks(
     })
 
     return checks
+
+
+def _check_heading_hierarchy(headings: List[Dict[str, Any]]) -> Tuple[str, str]:
+    """Validate numeric heading order when the parser has extracted headings."""
+    if not headings:
+        return "unknown", "ไม่มีข้อมูลหัวข้อจากไฟล์ จึงยังตรวจลำดับไม่ได้"
+
+    numbers: List[Tuple[int, ...]] = []
+    for heading in headings:
+        title = heading.get("title", "")
+        match = re.match(r"^(\d+(?:\.\d+){0,2})\b", title.strip())
+        if match:
+            numbers.append(tuple(int(part) for part in match.group(1).split(".")))
+
+    if len(numbers) < 2:
+        return "unknown", "พบหัวข้อแต่ไม่มีเลขลำดับเพียงพอสำหรับตรวจสอบ"
+
+    violations = []
+    for previous, current in zip(numbers, numbers[1:]):
+        if len(current) == 2 and len(previous) == 2 and current[0] == previous[0] and current[1] != previous[1] + 1:
+            violations.append(f"{previous} → {current}")
+        elif current <= previous:
+            violations.append(f"{previous} → {current}")
+
+    if violations:
+        return "warning", f"พบลำดับหัวข้อที่ควรตรวจสอบ: {', '.join(violations[:3])}"
+    return "pass", "ตรวจพบลำดับเลขหัวข้อเรียงต่อเนื่องตามข้อมูลที่สกัดได้"
+
+
+def _check_pagination(content: str) -> Tuple[str, str]:
+    """Only report pagination as pass when extracted text contains page markers/TOC data."""
+    if not content.strip():
+        return "unknown", "ไม่มีข้อความจากไฟล์เพียงพอสำหรับตรวจเลขหน้าและสารบัญ"
+    if re.search(r"(?:หน้า\s*\d+|สารบัญ|table\s+of\s+contents|contents)", content, re.IGNORECASE):
+        return "pass", "พบข้อความอ้างอิงเลขหน้าหรือสารบัญจากไฟล์"
+    return "unknown", "ไม่พบข้อมูลเลขหน้า/สารบัญในข้อความที่สกัด จึงยังยืนยันไม่ได้"

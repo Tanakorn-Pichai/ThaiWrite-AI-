@@ -352,7 +352,7 @@ export const StructurePanel: React.FC<StructurePanelProps> = ({
                           : 'bg-amber-100 text-amber-900 border-amber-300'
                       }`}
                     >
-                      {isPass ? 'ถูกต้อง' : 'ควรปรับแก้'}
+                      {isPass ? 'ถูกต้อง' : rule.status === 'unknown' ? 'ตรวจไม่ได้' : 'ควรปรับแก้'}
                     </span>
                   </div>
 

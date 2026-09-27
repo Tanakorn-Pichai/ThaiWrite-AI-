@@ -117,7 +117,7 @@ class FormattingCheckItem(BaseModel):
     ruleName: str
     expected: str
     detected: str
-    status: str  # 'pass' | 'warning' | 'fail'
+    status: str  # 'pass' | 'warning' | 'fail' | 'unknown'
     recommendation: str
 
 
