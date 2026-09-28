@@ -16,6 +16,10 @@ import time
 import uuid
 import uvicorn
 from contextlib import asynccontextmanager
+from dotenv import load_dotenv
+
+# Load backend/.env before importing modules that read environment settings.
+load_dotenv()
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware

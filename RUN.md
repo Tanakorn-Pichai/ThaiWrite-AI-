@@ -51,6 +51,10 @@ source venv/bin/activate
 # ติดตั้ง dependencies
 pip install -r requirements.txt
 
+# ตั้งค่า Gemini (ถ้าต้องการตรวจไวยากรณ์เชิงลึก)
+# สร้าง backend/.env จาก backend/.env.example แล้วใส่ API key ที่หมุนใหม่ของคุณ
+# เปิดใช้งานด้วย ENABLE_GEMINI_GRAMMAR=true
+
 # สตาร์ท FastAPI Server (รันจากโฟลเดอร์ backend)
 python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```

@@ -31,6 +31,13 @@ export interface DetailedBreakdown {
   academic: string;
 }
 
+export interface AIReviewMetadata {
+  enabled: boolean;
+  used: boolean;
+  model?: string | null;
+  error?: string | null;
+}
+
 export interface AnalysisResult {
   wordCount: number;
   sentenceCount: number;
@@ -44,6 +51,7 @@ export interface AnalysisResult {
   improvedText: string;
   detailedBreakdown: DetailedBreakdown;
   highlights?: IssueHighlight[];
+  aiReview?: AIReviewMetadata;
 }
 
 export interface TemplateSection {

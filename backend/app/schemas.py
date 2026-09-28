@@ -90,6 +90,13 @@ class DetailedBreakdown(BaseModel):
     academic: str = ""
 
 
+class AIReviewMetadata(BaseModel):
+    enabled: bool = False
+    used: bool = False
+    model: Optional[str] = None
+    error: Optional[str] = None
+
+
 class LanguageResult(BaseModel):
     wordCount: int
     sentenceCount: int
@@ -103,6 +110,7 @@ class LanguageResult(BaseModel):
     improvedText: str = ""
     detailedBreakdown: DetailedBreakdown
     highlights: List[LanguageIssueItem] = []
+    aiReview: Optional[AIReviewMetadata] = None
 
 
 class SectionCheckItem(BaseModel):

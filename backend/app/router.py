@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 from . import crud, schemas, models
 from .database import get_db
 from .nlp_engine import analyze_thai_text
+from .gemini_grammar import review_academic_text
 from .docx_parser import parse_docx, parse_pdf, parse_text
 from .structure_checker import STANDARD_TEMPLATES, get_template_by_id as get_tmpl_by_id, evaluate_structure
 
@@ -137,10 +138,25 @@ def _run_analysis_sync(
     job: models.AnalysisJob,
 ):
     """Run NLP + structure analysis synchronously and persist results."""
-    # 1. NLP analysis via PyThaiNLP
+    # 1. Deterministic NLP analysis via PyThaiNLP
     lang_result = analyze_thai_text(content, writing_style)
 
-    # 2. Parse document structure
+    # 2. Optional Gemini deep review for formal writing profiles.
+    ai_review = review_academic_text(content, writing_style)
+    if ai_review and ai_review.get("findings"):
+        existing = lang_result.get("highlights", [])
+        seen = {(item.get("type"), item.get("startOffset"), item.get("endOffset"), item.get("replacement", "")) for item in existing}
+        for finding in ai_review["findings"]:
+            key = (finding["type"], finding["startOffset"], finding["endOffset"], finding["replacement"])
+            if key not in seen:
+                existing.append(finding)
+                seen.add(key)
+        lang_result["highlights"] = existing
+        lang_result["issueCount"] = len(existing)
+        lang_result["score"] = max(60, 100 - len(existing) * 3)
+    lang_result["aiReview"] = ai_review
+
+    # 3. Parse document structure
     if file_bytes and file_type in ("docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"):
         parsed = parse_docx(file_bytes)
     elif file_bytes and file_type in ("pdf", "application/pdf"):
@@ -227,6 +243,7 @@ def _build_analysis_response(job_id: str, doc_name: str, lang: dict, struct: dic
         originalText=lang.get("originalText", ""),
         improvedText=lang.get("improvedText", ""),
         detailedBreakdown=schemas.DetailedBreakdown(**lang.get("detailedBreakdown", {})),
+        aiReview=schemas.AIReviewMetadata(**lang["aiReview"]) if lang.get("aiReview") else None,
         highlights=[schemas.LanguageIssueItem(
             text=h.get("text", ""),
             type=h.get("type", "grammar"),

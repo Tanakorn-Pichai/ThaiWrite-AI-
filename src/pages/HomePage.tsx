@@ -309,7 +309,9 @@ export const HomePage: React.FC = () => {
       if (apiResponse.status === 'completed' && apiResponse.result) {
         const { languageResult, structureResult } = apiResponse.result;
         setAnalysisResult(languageResult);
-        setEngineVersion(apiResponse.engineVersion || null);
+        setEngineVersion(languageResult.aiReview?.used
+          ? `Gemini + PyThaiNLP · ${languageResult.aiReview.model || apiResponse.engineVersion || 'AI'}`
+          : apiResponse.engineVersion || null);
         appLogger.info('real_nlp_analysis_completed', {
           engineVersion: apiResponse.engineVersion || 'unknown',
           jobId: apiResponse.jobId,
