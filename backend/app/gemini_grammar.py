@@ -83,7 +83,13 @@ def review_academic_text(text: str, writing_style: str) -> Optional[Dict[str, An
         from google import genai
         from google.genai import types
 
-        model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        primary_model = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+        fallback_models = [
+            value.strip()
+            for value in os.getenv("GEMINI_FALLBACK_MODELS", "gemini-flash-lite-latest").split(",")
+            if value.strip()
+        ]
+        models_to_try = list(dict.fromkeys([primary_model, *fallback_models]))
         client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
         prompt = f"""ตรวจโครงสร้างประโยคและไวยากรณ์ภาษาไทยเชิงลึกสำหรับระดับภาษา: {writing_style}
 
@@ -96,29 +102,30 @@ def review_academic_text(text: str, writing_style: str) -> Optional[Dict[str, An
 กติกา: ตรวจเฉพาะข้อผิดพลาดที่มีหลักฐานจากข้อความ ห้ามแก้คำถูกต้องเพียงเพราะเป็นภาษาพูด และห้ามใส่ Markdown fence
 """
         max_attempts = 3
-        for attempt in range(max_attempts):
-            try:
-                response = client.models.generate_content(
-                    model=model,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        response_mime_type="application/json",
-                        temperature=0.1,
-                        automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
-                    ),
-                )
-                payload = _extract_json(response.text or "{}")
-                return {"enabled": True, "used": True, "model": model, "findings": _normalize_findings(payload, text)}
-            except Exception as exc:
-                message = str(exc)
-                transient = any(marker in message for marker in ("429", "500", "502", "503", "504", "UNAVAILABLE", "ResourceExhausted"))
-                if not transient or attempt == max_attempts - 1:
-                    logger.warning("Gemini grammar review unavailable: %s", type(exc).__name__)
-                    break
-                delay = 0.5 * (2 ** attempt)
-                logger.info("Gemini transient error; retrying attempt %s/%s", attempt + 2, max_attempts)
-                time.sleep(delay)
-        return {"enabled": True, "used": False, "model": model, "findings": [], "error": "บริการตรวจเชิงลึกไม่พร้อมใช้งาน"}
+        for model in models_to_try:
+            for attempt in range(max_attempts):
+                try:
+                    response = client.models.generate_content(
+                        model=model,
+                        contents=prompt,
+                        config=types.GenerateContentConfig(
+                            response_mime_type="application/json",
+                            temperature=0.1,
+                            automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+                        ),
+                    )
+                    payload = _extract_json(response.text or "{}")
+                    return {"enabled": True, "used": True, "model": model, "findings": _normalize_findings(payload, text)}
+                except Exception as exc:
+                    message = str(exc)
+                    transient = any(marker in message for marker in ("429", "500", "502", "503", "504", "UNAVAILABLE", "ResourceExhausted"))
+                    if not transient or attempt == max_attempts - 1:
+                        logger.warning("Gemini grammar review unavailable for %s: %s", model, type(exc).__name__)
+                        break
+                    delay = 0.5 * (2 ** attempt)
+                    logger.info("Gemini transient error for %s; retrying attempt %s/%s", model, attempt + 2, max_attempts)
+                    time.sleep(delay)
+        return {"enabled": True, "used": False, "model": primary_model, "findings": [], "error": "บริการตรวจเชิงลึกไม่พร้อมใช้งาน"}
     except Exception as exc:
         logger.warning("Gemini grammar review unavailable: %s", type(exc).__name__)
         return {"enabled": True, "used": False, "model": os.getenv("GEMINI_MODEL", "gemini-2.5-flash"), "findings": [], "error": "บริการตรวจเชิงลึกไม่พร้อมใช้งาน"}

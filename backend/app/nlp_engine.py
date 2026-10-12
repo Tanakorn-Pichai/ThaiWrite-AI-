@@ -22,6 +22,8 @@ ACADEMIC_REPLACEMENTS: List[Tuple[str, str, str, str]] = [
     # 1. คำสะกดผิดตามบริบท (Contextual Spelling)
     ("ขออนุญาติ", "ขออนุญาต", "spelling", "คำว่า 'ขออนุญาต' สะกดโดยไม่มีสระอิ ตามพจนานุกรมราชบัณฑิตยสถาน"),
     ("อนุญาติ", "อนุญาต", "spelling", "คำว่า 'อนุญาต' สะกดโดยไม่มีสระอิ ตามพจนานุกรมราชบัณฑิตยสถาน"),
+    ("อนุณาติ", "อนุญาต", "spelling", "คำว่า 'อนุญาต' ต้องใช้ ญ.หญิง และสะกดโดยไม่มีสระอิ"),
+    ("ขออนุณาติ", "ขออนุญาต", "spelling", "คำว่า 'ขออนุญาต' ต้องใช้ ญ.หญิง และสะกดโดยไม่มีสระอิ"),
     ("สังเกตุ", "สังเกต", "spelling", "คำว่า 'สังเกต' สะกดโดยไม่มีสระอุ"),
     ("กฏหมาย", "กฎหมาย", "spelling", "ใช้ ฎ (ชฎา) ในคำว่า 'กฎหมาย'"),
     ("กฏเกณฑ์", "กฎเกณฑ์", "spelling", "ใช้ ฎ (ชฎา) ในคำว่า 'กฎเกณฑ์'"),
@@ -60,7 +62,13 @@ ACADEMIC_REPLACEMENTS: List[Tuple[str, str, str, str]] = [
     ("ในส่วนของ", "สำหรับ", "academic", "ใช้คำเชื่อมที่กระชับและเป็นทางการขึ้น"),
     ("แบบว่า", "", "academic", "ตัดคำภาษาพูดที่ไม่จำเป็นออก"),
     ("ก็คือ", "คือ", "academic", "ตัดคำฟุ่มเฟือย 'ก็' ออก"),
+    ("ขออนุญาตอาจารย์ที่ปรึกษา", "ขออนุญาตจากอาจารย์ที่ปรึกษา", "grammar", "ควรมีคำบุพบท 'จาก' เพื่อระบุผู้ให้อนุญาตให้ชัดเจน"),
     ("ทำเรื่อง", "ยื่นคำร้อง", "academic", "ใช้ภาษาวิชาการ/ราชการที่เป็นทางการ"),
+    ("พวกประชาชนทั่วไป", "ประชาชนทั่วไป", "academic", "คำว่า 'พวก' เป็นภาษาพูดและลดทอนความเป็นทางการ ควรใช้ 'ประชาชนทั่วไป' หรือ 'กลุ่มประชาชนทั่วไป'"),
+    ("พวกประชาชน", "ประชาชน", "academic", "คำว่า 'พวก' เป็นภาษาพูด ไม่ควรใช้นำหน้ากลุ่มประชากรในงานวิชาการ ควรใช้ 'ประชาชน' หรือ 'กลุ่มประชาชน'"),
+    ("พวกชาวบ้าน", "ประชาชนในพื้นที่", "academic", "หลีกเลี่ยงภาษาพูด ควรใช้ 'ประชาชนในพื้นที่' หรือ 'ชุมชน'"),
+    ("พวกนักศึกษา", "นักศึกษา", "academic", "ตัดคำว่า 'พวก' ออกเพื่อความเป็นทางการ"),
+    ("พวกนักเรียน", "นักเรียน", "academic", "ตัดคำว่า 'พวก' ออกเพื่อความเป็นทางการ"),
     ("แดก", "รับประทาน", "academic", "ปรับคำหยาบหรือภาษาสแลงเป็นภาษาสุภาพ"),
     ("รึยัง", "หรือยัง", "academic", "ปรับภาษาพูดให้เป็นภาษามาตรฐาน"),
 
@@ -108,6 +116,8 @@ KNOWN_MISSPELLINGS: Dict[str, str] = {
     "สาระณียกรรม": "สารานียกรรม",
     "ปฏิสังขร": "ปฏิสังขรณ์",
     "อนุญาติ": "อนุญาต",
+    "อนุณาติ": "อนุญาต",
+    "ขออนุณาติ": "ขออนุญาต",
     "ผูกพันธ์": "ผูกพัน",
     "สังเกตุ": "สังเกต",
     "ประมาท": "ประมาท",
@@ -153,8 +163,10 @@ def analyze_thai_text(text: str, writing_style: str = "เชิงวิชา�
     # ── 2. Spelling check via PyThaiNLP ──
     spelling_issues = _check_spelling(words, cleaned)
 
+    text_after_spelling = _apply_issue_replacements(cleaned, spelling_issues)
+
     # ── 3. Spacing and Thai repetition mark checks ──
-    spacing_issues, text_after_spacing = _check_spacing_and_repetition_marks(cleaned)
+    spacing_issues, text_after_spacing = _check_spacing_and_repetition_marks(text_after_spelling)
     improved_spacing_text = _apply_issue_replacements(text_after_spacing, spacing_issues)
 
     # ── 4. Repeated words check (คำซ้ำซ้อน) ──
@@ -261,8 +273,13 @@ def _check_spelling(words: List[str], text: str) -> List[Dict[str, Any]]:
 
     # Scan high-confidence dictionary corrections directly because tokenizers
     # may split a misspelling into fragments before the token-level pass.
-    for misspelled, replacement in KNOWN_MISSPELLINGS.items():
+    matched_ranges: List[Tuple[int, int]] = []
+    for misspelled, replacement in sorted(KNOWN_MISSPELLINGS.items(), key=lambda item: len(item[0]), reverse=True):
         for match in re.finditer(re.escape(misspelled), text):
+            span = (match.start(), match.end())
+            if any(span[0] < end and span[1] > start for start, end in matched_ranges):
+                continue
+            matched_ranges.append(span)
             issues.append({
                 "type": "spelling",
                 "detected_text": misspelled,
@@ -385,9 +402,25 @@ def _check_spacing_and_repetition_marks(text: str) -> Tuple[List[Dict[str, Any]]
 
 
 def _apply_issue_replacements(text: str, issues: List[Dict[str, Any]]) -> str:
+    """Apply replacement fixes to *text* using offsets from the original.
+
+    Issues are sorted right-to-left so earlier offsets stay valid. Overlapping
+    spans are skipped (the longer / first match wins).
+    """
+    sorted_issues = sorted(
+        [iss for iss in issues if iss.get("start_offset") is not None],
+        key=lambda item: (item["start_offset"], -(item["end_offset"] - item["start_offset"])),
+        reverse=True,
+    )
     improved = text
-    for issue in sorted(issues, key=lambda item: item["start_offset"], reverse=True):
-        improved = improved[:issue["start_offset"]] + issue["replacement"] + improved[issue["end_offset"]:]
+    last_start = len(text)
+    for issue in sorted_issues:
+        start = issue["start_offset"]
+        end = issue["end_offset"]
+        if end > last_start:
+            continue
+        improved = improved[:start] + issue["replacement"] + improved[end:]
+        last_start = start
     return improved
 
 
@@ -431,6 +464,18 @@ def _check_sentence_structure(text: str) -> List[Dict[str, str]]:
         # Check for clauses starting with cause/condition conjunctions without a main clause.
         # Thai text is often written without spaces between words, so a word-boundary
         # assertion would miss valid clauses such as "เนื่องจากไม่มีข้อมูล".
+        permission_match = re.search(r"ขออนุญาต(?P<advisor>อาจารย์ที่ปรึกษา)", line)
+        if permission_match:
+            issues.append({
+                "type": "grammar",
+                "detected_text": permission_match.group(0),
+                "replacement": f"ขออนุญาตจาก{permission_match.group('advisor')}",
+                "reason": "ควรมีคำบุพบท 'จาก' เพื่อระบุผู้ให้อนุญาตให้ชัดเจน",
+                "suggestions": [f"ขออนุญาตจาก{permission_match.group('advisor')}", f"ขออนุญาตต่อ{permission_match.group('advisor')}"],
+                "start_offset": permission_match.start(),
+                "end_offset": permission_match.end(),
+            })
+
         if re.match(r'^(เนื่องจาก|เพราะว่า|ด้วยเหตุที่)', line) and not re.search(r'(จึง|ส่งผลให้|ทำให้|ดังนั้น)', line):
             issues.append({
                 "type": "grammar",
@@ -485,6 +530,44 @@ def _apply_academic_rules(
                 "replacement_end": redundant_end,
             })
             occupied_ranges.append((match.start(), match.end()))
+
+    if "academic" in allowed_types:
+        informal_group_replacements = {
+            "ประชาชน": "ประชาชน",
+            "ประชาชนทั่วไป": "ประชาชนทั่วไป",
+            "กลุ่มตัวอย่าง": "กลุ่มตัวอย่าง",
+            "ผู้ตอบแบบสอบถาม": "ผู้ตอบแบบสอบถาม",
+            "ผู้เข้าร่วม": "ผู้เข้าร่วม",
+            "นักศึกษา": "นักศึกษา",
+            "นักเรียน": "นักเรียน",
+            "บุคลากร": "บุคลากร",
+            "อาจารย์": "อาจารย์",
+            "ครู": "ครู",
+            "พนักงาน": "พนักงาน",
+            "เจ้าหน้าที่": "เจ้าหน้าที่",
+            "ชาวบ้าน": "ประชาชนในพื้นที่",
+            "คนในชุมชน": "ประชาชนในชุมชน",
+        }
+        group_pattern = re.compile(
+            "พวก(" + "|".join(re.escape(term) for term in sorted(informal_group_replacements, key=len, reverse=True)) + ")"
+        )
+        for match in group_pattern.finditer(text):
+            start, end = match.span()
+            if any(start < used_end and end > used_start for used_start, used_end in occupied_ranges):
+                continue
+            group_name = match.group(1)
+            replacement = informal_group_replacements[group_name]
+            if group_name == "ชาวบ้าน" and text[end:end + len("ในพื้นที่")] == "ในพื้นที่":
+                replacement = "ประชาชน"
+            occupied_ranges.append((start, end))
+            issues.append({
+                "type": "academic",
+                "detected_text": match.group(0),
+                "replacement": replacement,
+                "reason": "คำว่า 'พวก' เป็นภาษาพูดเมื่อนำหน้ากลุ่มบุคคล ควรตัดออกหรือใช้คำเรียกกลุ่มเป้าหมายที่เป็นทางการกว่า",
+                "start_offset": start,
+                "end_offset": end,
+            })
 
     # Longer phrases must win over shorter phrases. This prevents rules such as
     # ``ทำการส่ง`` and ``ทำการ`` from producing overlapping suggestions and

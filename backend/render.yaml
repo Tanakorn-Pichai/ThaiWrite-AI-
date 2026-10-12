@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: thaiwrite-api
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: free
+    envVars:
+      - key: DATABASE_URL
+        value: ""  # ใช้ SQLite fallback (ค่าว่าง = default)
+      - key: FRONTEND_ORIGINS
+        value: https://your-frontend.vercel.app
+      - key: ENABLE_GEMINI_GRAMMAR
+        value: "false"
+      - key: GEMINI_API_KEY
+        value: ""
+      - key: USE_CELERY
+        value: "false"
+      - key: USE_S3
+        value: "false"
+      - key: PORT
+        value: "8000"
+      - key: MAX_UPLOAD_SIZE_MB
+        value: "10"
