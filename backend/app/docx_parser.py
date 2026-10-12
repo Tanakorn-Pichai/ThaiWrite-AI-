@@ -20,9 +20,13 @@ import docx
 from docx.shared import Inches
 
 try:
-    import fitz  # PyMuPDF
+    import pymupdf as fitz  # PyMuPDF modern import
 except ImportError:
-    fitz = None  # type: ignore
+    try:
+        import fitz  # fallback to legacy alias
+    except ImportError:
+        fitz = None  # type: ignore
+
 
 
 # ────────────────────────────────────────────────────────

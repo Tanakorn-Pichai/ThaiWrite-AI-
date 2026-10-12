@@ -8,7 +8,7 @@ Matches the frontend StructureResult interface.
 
 import re
 import uuid
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 
 
 # ────────────────────────────────────────────────────────
