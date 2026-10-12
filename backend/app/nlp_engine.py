@@ -440,13 +440,13 @@ def _check_repeated_words(text: str) -> Tuple[List[Dict[str, str]], str]:
     pattern = r'([฀-๿]{2,})(\s*\1){1,}'
 
     # Exclude common intentional Thai word reduplications
-    exclude_list = {"ต่าง", "เพื่อน", "เล็ก", "ใหญ่", "คล้าย", "ค่อย", "จริง", "แฟน", "น้อง", "พี่", "เด็ก"}
+    exclude_list = {"ต่าง", "เพื่อน", "เล็ก", "ใหญ่", "คล้าย", "ค่อย", "จริง", "แฟน", "น้อง", "พี่", "เด็ก", "นานา"}
 
     for match in re.finditer(pattern, text):
         full_match = match.group(0)
         single_word = match.group(1)
 
-        if single_word in exclude_list:
+        if single_word in exclude_list or full_match in {"นานา"}:
             continue
 
         issues.append({
@@ -572,6 +572,25 @@ def _apply_academic_rules(
                 "detected_text": match.group(0),
                 "replacement": replacement,
                 "reason": "คำว่า 'พวก' เป็นภาษาพูดเมื่อนำหน้ากลุ่มบุคคล ควรตัดออกหรือใช้คำเรียกกลุ่มเป้าหมายที่เป็นทางการกว่า",
+                "start_offset": start,
+                "end_offset": end,
+            })
+
+    if "academic" in allowed_types or "wordUsage" in allowed_types:
+        passive_development_pattern = re.compile(r"ถูก(?P<verb>พัฒนา|จัดทำ|สร้าง|ออกแบบ|ปรับปรุง)ขึ้นมาโดย")
+        for match in passive_development_pattern.finditer(text):
+            start, end = match.span()
+            if any(start < used_end and end > used_start for used_start, used_end in occupied_ranges):
+                continue
+            verb = match.group("verb")
+            replacement = f"ได้รับการ{verb}โดย" if verb in {"พัฒนา", "ออกแบบ", "ปรับปรุง"} else f"{verb}โดย"
+            occupied_ranges.append((start, end))
+            issues.append({
+                "type": "wordUsage",
+                "detected_text": match.group(0),
+                "replacement": replacement,
+                "reason": "สำนวน 'ถูก...ขึ้นมาโดย' ค่อนข้างเยิ่นเย้อ ควรใช้รูปประโยคที่กระชับและเป็นทางการกว่า",
+                "suggestions": [replacement, f"{verb}โดย"],
                 "start_offset": start,
                 "end_offset": end,
             })
